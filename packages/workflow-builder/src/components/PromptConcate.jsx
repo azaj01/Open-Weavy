@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { Handle, Position, useReactFlow, useStore, useUpdateNodeInternals } from "reactflow";
 import { getRunId, getWorkflowId } from "./WorkflowStore";
-import { toast } from "react-toastify";
-import { CgOptions } from "react-icons/cg";
+import { toast } from "react-hot-toast";
 import { IoClose } from "react-icons/io5";
 import { concatModels } from "./utility";
 import { TbArrowMerge } from "react-icons/tb";
+import NodeOptionsMenu from "./NodeOptionsMenu";
 
 const inputHandles = [
   "concatInput",
@@ -22,7 +22,7 @@ const PromptConcate = ({ id, data, selected }) => {
   const [formValues, setFormValues] = useState({});
   const [dropDown, setDropDown] = useState(0);
   const workflowId = getWorkflowId();
-  const runId = getRunId();
+  const runId = data.runId ?? getRunId();
   const nodeSchemas = data.nodeSchemas || {};
   const { setNodes, setEdges } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
@@ -79,14 +79,14 @@ const PromptConcate = ({ id, data, selected }) => {
 
     const validKeys = Object.keys(properties);
     const filteredFormValues = Object.entries(data.formValues || {}).reduce((acc, [key, val]) => {
-      if (validKeys.includes(key)) acc[key] = val;
+      if (validKeys?.includes(key)) acc[key] = val;
       return acc;
     }, {});
 
     const merged = Object.entries({ ...defaults, ...filteredFormValues }).reduce(
       (acc, [key, val]) => {
         const meta = properties[key];
-        if (meta?.enum && !meta.enum.includes(val)) {
+        if (meta?.enum && !meta.enum?.includes(val)) {
           acc[key] = meta.default ?? meta.enum[0] ?? "";
         } else {
           acc[key] = val;
@@ -117,8 +117,18 @@ const PromptConcate = ({ id, data, selected }) => {
   }, [data.formValues]);
 
   useEffect(() => {
-    if (data?.onDataChange) {
-      data.onDataChange(id, { formValues });
+    if (!data?.onDataChange) return;
+    
+    const currentData = {
+      formValues: data.formValues
+    };
+    
+    const newData = {
+      formValues
+    };
+    
+    if (JSON.stringify(currentData) !== JSON.stringify(newData)) {
+      data.onDataChange(id, newData);
     }
   }, [formValues]);
 
@@ -126,7 +136,7 @@ const PromptConcate = ({ id, data, selected }) => {
     if (window.confirm(`Are you sure you want to delete this ${id} node?`)) {
       setNodes((nds) => nds.filter((n) => n.id !== id));
       setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
-      toast.info(`Deleted node ${id}`);
+      toast.success(`Deleted node ${id}`);
     };
   };
 
@@ -141,7 +151,7 @@ const PromptConcate = ({ id, data, selected }) => {
       setEdges((prevEdges) =>
         prevEdges.filter((edge) => {
           if (edge.target !== id) return true;
-          return validHandles.includes(edge.targetHandle);
+          return validHandles?.includes(edge.targetHandle);
         })
       );
     }, 2000);
@@ -185,13 +195,11 @@ const PromptConcate = ({ id, data, selected }) => {
           >
             {selectedModel.name}
           </button>
-          <button
-            type="button"
-            onClick={handleDeleteNode}
-            className="font-bold p-1 hover:bg-[#494c52] rounded cursor-pointer text-gray-400 hover:text-red-500 ml-auto"
-          >
-            <IoClose size={18} />
-          </button>
+          <NodeOptionsMenu 
+            nodeId={id}
+            onDuplicate={data.duplicateNode}
+            onDelete={handleDeleteNode}
+          />
         </div>
       </div>
       <div className="flex flex-col w-full h-full">

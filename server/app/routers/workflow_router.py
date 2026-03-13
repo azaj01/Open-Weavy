@@ -16,7 +16,12 @@ from app.utils.workflow_helper import (
     update_workflow_name_helper,
     get_workflow_last_run,
     architect_workflow_helper,
-    poll_architect_result_helper
+    poll_architect_result_helper,
+    delete_node_run_by_id_helper,
+    update_workflow_category_helper,
+    get_workflow_api_inputs_helper,
+    execute_workflow_via_api_helper,
+    get_workflow_api_outputs_helper
 )
 
 router = APIRouter()
@@ -164,4 +169,47 @@ async def poll_architect_result(id: str):
     try:
         return await poll_architect_result_helper(id)
     except Exception as e:
+        if isinstance(e, HTTPException): raise e
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/node-run/{node_run_id}")
+async def delete_node_run(node_run_id: str):
+    try:
+        return await delete_node_run_by_id_helper(node_run_id)
+    except Exception as e:
+        if isinstance(e, HTTPException): raise e
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/update-category/{workflow_id}")
+async def update_workflow_category(workflow_id: str, request: Request):
+    try:
+        payload = await request.json()
+        return await update_workflow_category_helper(workflow_id, payload)
+    except Exception as e:
+        if isinstance(e, HTTPException): raise e
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/{workflow_id}/api-inputs")
+async def get_workflow_api_inputs(workflow_id: str):
+    try:
+        return await get_workflow_api_inputs_helper(workflow_id)
+    except Exception as e:
+        if isinstance(e, HTTPException): raise e
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/{workflow_id}/api-execute")
+async def execute_workflow_via_api(workflow_id: str, request: Request):
+    try:
+        payload = await request.json()
+        return await execute_workflow_via_api_helper(workflow_id, payload)
+    except Exception as e:
+        if isinstance(e, HTTPException): raise e
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/run/{run_id}/api-outputs")
+async def get_workflow_api_outputs(run_id: str):
+    try:
+        return await get_workflow_api_outputs_helper(run_id)
+    except Exception as e:
+        if isinstance(e, HTTPException): raise e
         raise HTTPException(status_code=400, detail=str(e))

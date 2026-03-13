@@ -1,18 +1,20 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Handle, Position, useReactFlow, useStore, useUpdateNodeInternals } from "reactflow";
 import { getRunId, getWorkflowId } from "./WorkflowStore";
-import { toast } from "react-toastify";
-import { IoClose } from "react-icons/io5";
+import { toast } from "react-hot-toast";
+import { IoClose, IoTrashOutline } from "react-icons/io5";
 import { AiOutlineAudio } from "react-icons/ai";
 import UploadNode from "./UploadNode";
 import { audioModels, downloadFile } from "./utility";
 import AudioPlayer from "./AudioPlayer";
-import { BsArrowUpCircleFill } from "react-icons/bs";
 import axios from "axios";
 import { SlOptions } from "react-icons/sl";
 import { MdOutlineFileDownload } from "react-icons/md";
+import { FaAngleLeft, FaAngleRight } from "react-icons/fa6";
+import NodeSendButton from "./NodeSendButton";
+import NodeOptionsMenu from "./NodeOptionsMenu";
 
 const inputHandles = [
   "audioInput",
@@ -38,8 +40,12 @@ const AudioGeneration = ({ id, data, selected }) => {
   const [formValues, setFormValues] = useState(data.formValues || {});
   const [dropDown, setDropDown] = useState(0);
   const [loading, setLoading] = useState(0);
+  const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1);
+  const [currentAudioIndex, setCurrentAudioIndex] = useState(0);
+  const outputHistory = data.outputHistory || [];
+  const prevHistoryLengthRef = useRef(outputHistory.length);
   const workflowId = getWorkflowId();
-  const runId = getRunId();
+  const runId = data.runId ?? getRunId();
   const nodeSchemas = data.nodeSchemas || {};
   const { setNodes, setEdges } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
@@ -133,7 +139,18 @@ const AudioGeneration = ({ id, data, selected }) => {
 
       data.onDataChange(id, { triggerRun: false });
     }
-  }, [data.selectedModel, data.triggerRun]);
+
+    if (data.outputHistory && data.outputHistory.length > 0) {
+      if (currentHistoryIndex === -1) {
+        setCurrentHistoryIndex(data.outputHistory.length - 1);
+        setCurrentAudioIndex(0);
+      } else if (data.outputHistory.length > prevHistoryLengthRef.current) {
+        setCurrentHistoryIndex(data.outputHistory.length - 1);
+        setCurrentAudioIndex(0);
+      }
+    }
+    prevHistoryLengthRef.current = data.outputHistory ? data.outputHistory.length : 0;
+  }, [data.selectedModel, data.triggerRun, data.outputHistory]);
 
   useEffect(() => {
     updateNodeInternals(id);
@@ -168,26 +185,40 @@ const AudioGeneration = ({ id, data, selected }) => {
     const interval = setInterval(() => {
       axios.get(`/api/workflow/run/${run_id}/status`)
       .then((response) => {
-        const nodeData = response.data.nodes?.[id];
+        const nodesInRes = response.data.nodes || {};
+        const nodeData = nodesInRes[id] || Object.entries(nodesInRes).find(([key]) => 
+          key.toLowerCase().replace(/\s+/g, '') === id.toLowerCase().replace(/\s+/g, '')
+        )?.[1];
+
         if (!nodeData || nodeData.length === 0) return;
+        const latest = nodeData[nodeData.length - 1];
+        if (latest.status === "succeeded" || latest.status === "completed") {
+          const output = latest.result.outputs;
+          const val = output[0]?.value || "";
+          
+          const currentHistory = data.outputHistory || [];
+          const result = latest.result;
+          const isAlreadyInHistory = currentHistory.some(h => h.result?.id === result.id);
+          const newHistory = isAlreadyInHistory 
+            ? currentHistory.map(h => h.result?.id === result.id ? latest : h)
+            : [...currentHistory, latest];
 
-        if (nodeData[0].status === "succeeded") {
-          const output = nodeData[0].result.outputs;
-          const val = output[0].value || "";
-          data?.onDataChange?.(id, { outputs: output, resultUrl: val, isLoading: false, errorMsg: null });
-
+          data?.onDataChange?.(id, { outputs: output, resultUrl: val, isLoading: false, errorMsg: null, outputHistory: newHistory });
+          setCurrentHistoryIndex(newHistory.length - 1);
+          setCurrentAudioIndex(0);
           clearInterval(interval);
         }
 
-        if (nodeData[0].status === "failed") {
-          const outputs = nodeData[0]?.result?.outputs;
+        if (latest.status === "failed") {
+          const outputs = latest?.result?.outputs;
           let errorMsg = "Generation failed";
 
           if (outputs && outputs[0]?.value?.error) {
             errorMsg = outputs[0].value.error; 
           }
           toast.error(`Node ${id} failed`);
-          data.onDataChange(id, { isLoading: false, errorMsg });
+          const currentHistory = data.outputHistory || [];
+          data.onDataChange(id, { isLoading: false, errorMsg, outputHistory: currentHistory });
           clearInterval(interval);
         }
       })
@@ -195,7 +226,7 @@ const AudioGeneration = ({ id, data, selected }) => {
         console.log(error);
         clearInterval(interval);
         data.onDataChange(id, { isLoading: false });
-        toast.error(`Failed to get workflow status Text ${id.replace(/^\D+/g, "")}`);
+        toast.error(`Failed to get workflow status Audio ${id.replace(/^\D+/g, "")}`);
       });
     }, 3000);
   };
@@ -250,7 +281,7 @@ const AudioGeneration = ({ id, data, selected }) => {
     if (window.confirm(`Are you sure you want to delete this ${id} node?`)) {
       setNodes((nds) => nds.filter((n) => n.id !== id));
       setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
-      toast.info(`Deleted node ${id}`);
+      toast.success(`Deleted node ${id}`);
     };
   };
 
@@ -278,6 +309,66 @@ const AudioGeneration = ({ id, data, selected }) => {
     return () => clearTimeout(timeout);
   }, [hasAudioUrl, hasPrompt, hasImageUrl, hasVideoUrl, id, setEdges]);
 
+  const handlePrev = (e) => {
+    e.stopPropagation();
+    if (currentHistoryIndex > 0) {
+      const newIndex = currentHistoryIndex - 1;
+      setCurrentHistoryIndex(newIndex);
+      setCurrentAudioIndex(0);
+      const viewing = outputHistory[newIndex]?.result?.outputs?.[0]?.value;
+      setNodes((nds) => nds.map((n) => {
+        if (n.id === id) {
+          return { ...n, data: { ...n.data, viewingOutput: viewing } };
+        }
+        return n;
+      }));
+    }
+  };
+
+  const handleNext = (e) => {
+    e.stopPropagation();
+    if (currentHistoryIndex < outputHistory.length - 1) {
+      const newIndex = currentHistoryIndex + 1;
+      setCurrentHistoryIndex(newIndex);
+      setCurrentAudioIndex(0);
+      const viewing = outputHistory[newIndex]?.result?.outputs?.[0]?.value;
+      setNodes((nds) => nds.map((n) => {
+        if (n.id === id) {
+          return { ...n, data: { ...n.data, viewingOutput: viewing } };
+        }
+        return n;
+      }));
+    }
+  };
+
+  const handleDeleteHistory = async (e) => {
+    e.stopPropagation();
+    const currentHistory = outputHistory[currentHistoryIndex];
+    if (!currentHistory || !currentHistory.node_run_id) return;
+
+    if (window.confirm("Are you sure you want to delete this history entry?")) {
+      try {
+        await axios.delete(`/api/workflow/node-run/${currentHistory.node_run_id}`);
+        const newHistory = outputHistory.filter((_, i) => i !== currentHistoryIndex);
+        
+        data?.onDataChange?.(id, { 
+          outputHistory: newHistory,
+          ...(newHistory.length === 0 ? { outputs: [], resultUrl: null } : {})
+        });
+
+        if (newHistory.length === 0) {
+          setCurrentHistoryIndex(-1);
+        } else {
+          setCurrentHistoryIndex(Math.max(0, currentHistoryIndex - 1));
+        }
+        toast.success("History entry deleted");
+      } catch (error) {
+        toast.error(error.response?.data?.detail || "Failed to delete history entry");
+        console.error(error);
+      }
+    }
+  };
+
   useEffect(() => {
     const connectedInputs = {};
     inputHandles.forEach((h) => {
@@ -297,98 +388,143 @@ const AudioGeneration = ({ id, data, selected }) => {
     setConnectedOutputs(connectedOutputs);
   }, [edges, id]);
 
+  const currentOutputList = currentHistoryIndex !== -1 && outputHistory[currentHistoryIndex]
+    ? outputHistory[currentHistoryIndex]?.result?.outputs || []
+    : (data.outputs || []);
+
+  const currentOutput = currentOutputList.length > 0
+    ? currentOutputList[currentAudioIndex]?.value || currentOutputList[0]?.value || data.resultUrl
+    : data.resultUrl;
+
   return (
-    <div style={{ minHeight: 210 }} className={`nowheel group flex flex-col flex-1 w-80 bg-[#0c0d0f] rounded-2xl border-2 relative transition-all duration-500 ease-in-out ${selected ? "border-white": "border-gray-500"}`}>
-      <h3 className="absolute -top-5 left-0 text-gray-300 text-xs">Audio {id.replace(/^\D+/g, "")}</h3>
-      <div className="flex items-center justify-between bg-[#151618] rounded-t-2xl border-b border-gray-800 p-2">
-        <div className="flex items-center gap-3 w-full">
-          <button
-            type="button"
-            className={`p-1 rounded cursor-pointer text-white bg-transparent flex`}
-          >
-            <AiOutlineAudio size={18} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setDropDown(prev => prev === 1 ? 0: 1)}
-            className="flex items-center gap-1 text-xs text-center text-white cursor-pointer truncate"
-          >
-            {selectedModel.name}
-          </button>
-          <button
-            type="button"
-            onClick={handleDeleteNode}
-            className="font-bold p-1 hover:bg-[#494c52] rounded cursor-pointer text-gray-400 hover:text-red-500 ml-auto"
-          >
-            <IoClose size={18} />
-          </button>
+    <div 
+      style={{ minHeight: 280, '--loader-color': '#eab308' }}
+      className={`
+        nowheel group flex flex-col flex-1 w-80 
+        rounded-2xl border-2 relative transition-all duration-300 ease-in-out 
+        ${selected 
+          ? "border-yellow-500 shadow-[0_0_25px_rgba(234,179,8,0.3)] scale-[1.02] ring-1 ring-yellow-500/20" 
+          : "border-zinc-800 hover:border-zinc-700 shadow-lg"} 
+        bg-[#0c0d0f]/95 backdrop-blur-sm
+      `}
+    >
+      {data.isLoading && (
+        <div className="loader-border" />
+      )}
+      <h3 className="absolute -top-5 left-0 text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
+        Audio {id.replace(/^\D+/g, "")}
+      </h3>
+      <div className="flex flex-col">
+        <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 p-3">
+          <div className="flex items-center gap-2.5">
+            <div className={`p-1.5 rounded-lg ${selected ? "bg-yellow-500 text-black" : "bg-zinc-800 text-zinc-400"} transition-colors`}>
+              <AiOutlineAudio size={14} />
+            </div>
+            <h3 className="text-xs font-bold text-zinc-100">
+              {selectedModel.name}
+            </h3>
+          </div>
+          {outputHistory.length > 0 && (
+            <div className="absolute -top-10 right-0 bg-[#0c0d0f]/95 flex items-center gap-1 p-1 border border-white/10 rounded-full ml-auto">
+              <button 
+                onClick={handlePrev}
+                disabled={currentHistoryIndex <= 0}
+                className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-white/10 text-white/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                title="Previous"
+              >
+                <FaAngleLeft size={10} />
+              </button>
+              <div className="flex items-center gap-1.5 px-0.5">
+                <span className="text-[9px] font-medium text-white/90 tabular-nums tracking-wide">
+                  {currentHistoryIndex + 1}/{outputHistory.length}
+                </span>
+                <div className="w-[1px] h-2.5 bg-white/10" />
+                <button 
+                  onClick={handleDeleteHistory}
+                  className="p-1 hover:bg-red-500/10 rounded-full text-zinc-400 hover:text-red-500 transition-colors flex items-center justify-center"
+                  title="Delete history"
+                >
+                  <IoTrashOutline size={10} />
+                </button>
+                <div className="w-[1px] h-2.5 bg-white/10" />
+                <NodeSendButton 
+                  id={id} 
+                  data={data} 
+                  outputHistory={outputHistory} 
+                  currentHistoryIndex={currentHistoryIndex} 
+                  currentOutputIndex={currentAudioIndex}
+                />
+              </div>
+              <button 
+                onClick={handleNext}
+                disabled={currentHistoryIndex >= outputHistory.length - 1}
+                className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-white/10 text-white/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                title="Next"
+              >
+                <FaAngleRight size={10} />
+              </button>
+            </div>
+          )}
+          <NodeOptionsMenu 
+            nodeId={id}
+            onDuplicate={data.duplicateNode}
+            onDelete={handleDeleteNode}
+            downloadUrl={currentOutput}
+          />
         </div>
       </div>
       {data.selectedModel?.id === "audio-passthrough" ? (
-        <div className="w-full h-full">
+        <div className="w-full h-full flex-1">
           <UploadNode id={id} data={data} formValues={formValues} setFormValues={setFormValues} selectedModel={selectedModel} loading={loading} uploadType="upload" acceptType="audio" />
         </div>
       ) : (
         <div className="flex items-center flex-grow justify-center w-full h-full rounded transition-all duration-500">
           {data.isLoading ? (
-            <div className="flex items-center justify-center w-full h-full overflow-hidden aspect-[1/1]">
-              <div className="flex items-center justify-center text-xs skeleton w-full h-full">Generating...</div>
+            <div className="flex items-center justify-center w-full h-full overflow-hidden aspect-[1/1] bg-white/5 animate-pulse rounded-b-2xl">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-8 h-8 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-[10px] font-bold text-yellow-500 tracking-wider uppercase">Generating...</span>
+              </div>
             </div>
           ) : data.errorMsg ? (
-            <div className="text-red-300 text-sm p-2">
-              {data.errorMsg || "Failed Generation"}
+            <div className="text-red-400 text-xs font-medium p-3 bg-red-500/10 rounded-xl border border-red-500/20 m-3 w-full">
+              {data.errorMsg || "Generation failed"}
             </div>
-          ) : data.resultUrl && !data.isLoading ? (
-            <div className="w-full h-36 relative">
-              <div 
-                className="absolute top-2 right-2 z-10" 
-                onClick={(e) => {e.stopPropagation();e.preventDefault();}}
-                onBlur={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget)) {
-                    setDropDown(0);
-                  }
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => setDropDown(prev => prev === 2 ? 0: 2)}
-                  className="text-white bg-black/20 rounded-full cursor-pointer p-1 hover:bg-black/70"
-                >
-                  <SlOptions />
-                </button>
-                {dropDown === 2 && (
-                  <div className="absolute right-0 top-7 z-10 flex flex-col gap-1 bg-[#1c1e21] border border-gray-500 p-1 rounded flex flex-col overflow-y-auto">
-                    <button
-                      type="button"
-                      onClick={() => downloadFile(data.resultUrl)}
-                      className="flex items-center gap-2 text-[10px] text-white cursor-pointer p-1 bg-transparent hover:bg-[#494c52] rounded-xs"
-                    >
-                      <MdOutlineFileDownload size={14} /> Download
-                    </button>
-                  </div>
-                )}
-              </div>
-              <AudioPlayer src={data.resultUrl} />
+          ) : currentOutput && !data.isLoading ? (
+            <div className="w-full h-full relative group/audio flex flex-col items-center justify-center">
+              <AudioPlayer 
+                src={currentOutput} 
+                nodeId={id}
+              />
+              {currentOutputList.length > 1 && (
+                <div className="flex items-center gap-2 mt-4 bg-white/5 border border-white/10 rounded-full px-2 py-1">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCurrentAudioIndex((prev) => (prev > 0 ? prev - 1 : currentOutputList.length - 1));
+                    }}
+                    className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/10 text-white/70 hover:text-white transition-colors"
+                  >
+                    <FaAngleLeft size={12} />
+                  </button>
+                  <span className="text-[10px] font-medium text-white/90 tabular-nums">
+                    {currentAudioIndex + 1}/{currentOutputList.length}
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCurrentAudioIndex((prev) => (prev < currentOutputList.length - 1 ? prev + 1 : 0));
+                    }}
+                    className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/10 text-white/70 hover:text-white transition-colors"
+                  >
+                    <FaAngleRight size={12} />
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-gray-400 text-sm italic">Generation results appeared here...</p>
           )}
-        </div>
-      )}
-      {data.selectedModel?.id !== "audio-passthrough" && (
-        <div className="flex items-center gap-2 border-t border-gray-700 mt-auto p-2 md:hidden">
-          <button
-            type="button"
-            onClick={handleRunSingleNode}
-            disabled={data.isLoading}
-            className="text-xs flex items-center gap-2 cursor-pointer disabled:opacity-70 group disabled:cursor-not-allowed rounded text-black bg-white px-2 py-1 border border-gray-500 hover:text-white hover:bg-black"
-          >
-            {data.isLoading ? (
-              <><div className="w-3 h-3 rounded-full border border-t-transparent group-hover:border-t-transparent border-black group-hover:border-white animate-spin"></div>Generating...</>
-            ) : (
-              <><BsArrowUpCircleFill size={16} /> Generate</>
-            )}
-          </button>
         </div>
       )}
       <Handle  
@@ -403,12 +539,11 @@ const AudioGeneration = ({ id, data, selected }) => {
           height: 12,
           transition: 'all 0.2s ease-in-out',
         }}  
-        className={`!rounded-full !border-2 transition-all duration-200 !left-[-7px]
+        className={`!rounded-full !border-[3px] !left-[-8px] transition-all
           ${connectedInputs.audioInput 
-            ? '!bg-yellow-500 !border-white shadow-[0_0_20px_rgba(255,215,0,1)]' 
-            : '!bg-black !border-yellow-500 shadow-[0_0_20px_rgba(255,215,0,0.5)]'
+            ? '!bg-yellow-500 !border-zinc-900 shadow-[0_0_15px_rgba(234,179,8,0.8)]' 
+            : '!bg-zinc-900 !border-yellow-500/50 hover:!border-yellow-500 shadow-sm'
           }
-          hover:!scale-125 hover:shadow-[0_0_20px_rgba(255,215,0,1)]
         `}
         data-type="yellow"
       />
@@ -435,12 +570,11 @@ const AudioGeneration = ({ id, data, selected }) => {
           height: 12,
           transition: 'all 0.2s ease-in-out',
         }} 
-        className={`!rounded-full !border-2 transition-all duration-200 !left-[-7px]
+        className={`!rounded-full !border-[3px] !left-[-8px] transition-all
           ${connectedInputs.audioInput2 
-            ? '!bg-blue-500 !border-white shadow-[0_0_20px_rgba(59,130,246,1)]' 
-            : '!bg-black !border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.5)]'
+            ? '!bg-blue-600 !border-zinc-900 shadow-[0_0_15px_rgba(37,99,235,0.8)]' 
+            : '!bg-zinc-900 !border-blue-600/50 hover:!border-blue-600 shadow-sm'
           }
-          hover:!scale-125 hover:shadow-[0_0_20px_rgba(59,130,246,1)]
         `}
         data-type="blue"
       />
@@ -467,12 +601,11 @@ const AudioGeneration = ({ id, data, selected }) => {
           height: 12,
           transition: 'all 0.2s ease-in-out',
         }} 
-        className={`!rounded-full !border-2 transition-all duration-200 !left-[-7px]
+        className={`!rounded-full !border-[3px] !left-[-8px] transition-all
           ${connectedInputs.audioInput3 
-            ? '!bg-green-500 !border-white shadow-[0_0_20px_rgba(34,197,94,1)]' 
-            : '!bg-black !border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.5)]'
+            ? '!bg-emerald-600 !border-zinc-900 shadow-[0_0_15px_rgba(16,185,129,0.8)]' 
+            : '!bg-zinc-900 !border-emerald-600/50 hover:!border-emerald-600 shadow-sm'
           }
-          hover:!scale-125 hover:shadow-[0_0_20px_rgba(34,197,94,1)]
         `}
         data-type="green" 
       />
@@ -499,12 +632,11 @@ const AudioGeneration = ({ id, data, selected }) => {
           height: 12,
           transition: 'all 0.2s ease-in-out',
         }} 
-        className={`!rounded-full !border-2 transition-all duration-200 !left-[-7px]
+        className={`!rounded-full !border-[3px] !left-[-8px] transition-all
           ${connectedInputs.audioInput4 
-            ? '!bg-orange-500 !border-white shadow-[0_0_20px_rgba(255,140,0,1)]' 
-            : '!bg-black !border-orange-500 shadow-[0_0_20px_rgba(255,140,0,0.5)]'
+            ? '!bg-orange-600 !border-zinc-900 shadow-[0_0_15px_rgba(249,115,22,0.8)]' 
+            : '!bg-zinc-900 !border-orange-600/50 hover:!border-orange-600 shadow-sm'
           }
-          hover:!scale-125 hover:shadow-[0_0_20px_rgba(255,140,0,1)]
         `}
         data-type="orange"
       />
@@ -529,12 +661,11 @@ const AudioGeneration = ({ id, data, selected }) => {
           height: 12,
           transition: 'all 0.2s ease-in-out',
         }} 
-        className={`!rounded-full !border-2 transition-all duration-200 !right-[-7px]
+        className={`!rounded-full !border-[3px] !right-[-8px] transition-all
           ${connectedOutputs.audioOutput 
-            ? '!bg-yellow-500 !border-white shadow-[0_0_20px_rgba(255,215,0,1)]' 
-            : '!bg-black !border-yellow-500 shadow-[0_0_20px_rgba(255,215,0,0.5)]'
+            ? '!bg-yellow-500 !border-zinc-900 shadow-[0_0_15px_rgba(234,179,8,0.8)]' 
+            : '!bg-zinc-900 !border-yellow-500/50 hover:!border-yellow-500 shadow-sm'
           }
-          hover:!scale-125 hover:shadow-[0_0_20px_rgba(255,215,0,1)]
         `}
         data-type="yellow"
       />
