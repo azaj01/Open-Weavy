@@ -9,6 +9,11 @@
 
 ---
 
+## Sample Workflow UI
+
+<img width="1468" height="764" alt="Screenshot 2026-04-01 at 4 03 29 PM" src="https://github.com/user-attachments/assets/0eeff00f-7850-4d53-bbc9-68f6b1f8b7a4" />
+
+
 ## Why Vibe Workflow Over Weavy AI / Krea Nodes / Freepik Spaces / FloraFauna AI?
 
 | Feature | Vibe Workflow | Weavy AI | Krea Nodes | Freepik Spaces | FloraFauna AI |
