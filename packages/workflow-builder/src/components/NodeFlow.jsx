@@ -41,6 +41,7 @@ import NodesNavbar from "./NodesNavbar"
 import ChatWidget from "./ChatWidget";
 import { AiOutlineAudio } from "react-icons/ai";
 import VideoCombiner from "./VideoCombiner";
+import { useGenerationCost } from "./useGenerationCost";
 
 const nodeTypes = {
   textNode: TextGeneration,
@@ -108,7 +109,7 @@ const getEdgeColor = (sourceHandle, targetHandle, sourceNode = null, targetNode 
   if (["textInput", "textInput4", "imageInput", "videoInput", "audioInput2", "concatInput", "apiInput"].includes(targetHandle)) return "blue";
   if (["textInput2", "textInput3", "imageInput2", "imageInput3", "videoInput2", "videoInput3", "videoInput6", "audioInput3", "apiInput2", "apiInput3"].includes(targetHandle)) return "green";
   if (["videoInput4", "audioInput4", "videoInput7"].includes(targetHandle)) return "orange";
-  if (["audioInput", "videoInput5"].includes(targetHandle)) return "yellow";
+  if (["audioInput", "videoInput5", "videoInput8"].includes(targetHandle)) return "yellow";
 
   if (sourceNode) {
     const type = sourceNode.type;
@@ -254,6 +255,15 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
   const [modelSearch, setModelSearch] = useState("");
   const [isPresetsDismissed, setIsPresetsDismissed] = useState(true);
   const [isRestoring, setIsRestoring] = useState(!initialState);
+  const [totalWorkflowCost, setTotalWorkflowCost] = useState(0);
+
+  useEffect(() => {
+    const total = nodes.reduce((sum, node) => {
+      const cost = parseFloat(node.data?.cost) || 0;
+      return sum + cost;
+    }, 0);
+    setTotalWorkflowCost(total.toFixed(3));
+  }, [nodes]);
 
   // Sync global store with initial data if provided
   useEffect(() => {
@@ -550,11 +560,21 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         }
 
         else if (targetHandle === "videoInput7") {
-          const list = Array.isArray(updatedFormValues.videos_list)
-            ? [...updatedFormValues.videos_list]
+          const key = updatedFormValues.video_files ? "video_files" : "videos_list";
+          const list = Array.isArray(updatedFormValues[key])
+            ? [...updatedFormValues[key]]
             : [];
           if (!list.includes(resultValue) && resultValue && resultValue.trim() !== "") list.push(resultValue);
-          updatedFormValues.videos_list = list;
+          updatedFormValues[key] = list;
+        }
+
+        else if (targetHandle === "videoInput8") {
+          const key = updatedFormValues.audio_files ? "audio_files" : "audios_list";
+          const list = Array.isArray(updatedFormValues[key])
+            ? [...updatedFormValues[key]]
+            : [];
+          if (!list.includes(resultValue) && resultValue && resultValue.trim() !== "") list.push(resultValue);
+          updatedFormValues[key] = list;
         }
 
         else if (["videoInput5", "audioInput"].includes(targetHandle)) {
@@ -754,17 +774,26 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
               if (["videoInput4", "audioInput4"].includes(params.targetHandle)) {
                 updatedFormValues.video_url = resultValue || null;
               } else if (params.targetHandle === "videoInput7") {
-                const list = Array.isArray(updatedFormValues.videos_list) ? [...updatedFormValues.videos_list] : [];
+                const key = updatedFormValues.video_files ? "video_files" : "videos_list";
+                const list = Array.isArray(updatedFormValues[key]) ? [...updatedFormValues[key]] : [];
                 if (!list.includes(resultValue) && resultValue && resultValue.trim() !== "") {
                   list.push(resultValue);
                 }
-                updatedFormValues.videos_list = list;
+                updatedFormValues[key] = list;
               }
             }
 
             if (color === "yellow") {
               if (["audioInput", "videoInput5"].includes(params.targetHandle)) {
                 updatedFormValues.audio_url = resultValue !== undefined ? resultValue : null;
+              }
+              if (params.targetHandle === "videoInput8") {
+                const key = updatedFormValues.audio_files ? "audio_files" : "audios_list";
+                const list = Array.isArray(updatedFormValues[key]) ? [...updatedFormValues[key]] : [];
+                if (!list.includes(resultValue) && resultValue && resultValue.trim() !== "") {
+                  list.push(resultValue);
+                }
+                updatedFormValues[key] = list;
               }
             }
 
@@ -1006,12 +1035,14 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
 
             let updatedFormValues = { ...n.data.formValues };
             if (remainingUrls.length > 0) {
-              updatedFormValues.videos_list = remainingUrls;
+              const key = updatedFormValues.video_files ? "video_files" : "videos_list";
+              updatedFormValues[key] = remainingUrls;
             } else {
-              const currentList = Array.isArray(updatedFormValues.videos_list)
-                ? updatedFormValues.videos_list.filter(v => v !== removedUrl)
+              const key = updatedFormValues.video_files ? "video_files" : "videos_list";
+              const currentList = Array.isArray(updatedFormValues[key])
+                ? updatedFormValues[key].filter(v => v !== removedUrl)
                 : [];
-              updatedFormValues.videos_list = currentList;
+              updatedFormValues[key] = currentList;
             }
 
             return {
@@ -1039,6 +1070,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       const wavespeedSchema = nodeSchemas?.categories?.api?.models?.[model]?.input_schema;
       const concatSchema = nodeSchemas?.categories?.utility?.models?.["prompt-concatenator"]?.input_schema;
       const videoCombinerSchema = nodeSchemas?.categories?.utility?.models?.["video-combiner"]?.input_schema?.schemas?.input_data?.properties;
+      const formValues = node.data?.formValues || {};
 
       let dynamicPrompt = "";
 
@@ -1064,7 +1096,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       const dynamicSystemPrompt =
         systemPromptConnections.length > 0
           ? `{{ ${systemPromptConnections[0].source}.outputs[0].value }}`
-          : node.data?.formValues?.system_prompt || null;
+          : formValues?.system_prompt || null;
 
       const imageListConnections = connectedEdges.filter((e) =>
         ["textInput3", "imageInput2", "videoInput6", "apiInput2"].includes(e.targetHandle)
@@ -1075,7 +1107,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
           ? imageListConnections.map(
             (conn) => `{{ ${conn.source}.outputs[0].value }}`
           )
-          : node.data?.formValues?.images_list || []; // || [node.data?.outputs?.[0]?.value] 
+          : formValues?.images_list || []; // || [node.data?.outputs?.[0]?.value] 
 
       const imageUrlConnections = connectedEdges.filter((e) =>
         ["textInput2", "videoInput2", "imageInput3", "audioInput3", "apiInput3"].includes(e.targetHandle)
@@ -1089,10 +1121,21 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         e.targetHandle === "videoInput7"
       );
 
+      const audioListConnections = connectedEdges.filter((e) =>
+        e.targetHandle === "videoInput8"
+      );
+
+      const dynamicVideosKey = formValues?.video_files ? "video_files" : "videos_list";
       const dynamicVideosList =
         videoListConnections.length > 0
           ? videoListConnections.map((conn) => `{{ ${conn.source}.outputs[0].value }}`)
-          : node.data?.formValues?.videos_list || [];
+          : formValues[dynamicVideosKey] || [];
+
+      const dynamicAudiosKey = formValues?.audio_files ? "audio_files" : "audios_list";
+      const dynamicAudiosList =
+        audioListConnections.length > 0
+          ? audioListConnections.map((conn) => `{{ ${conn.source}.outputs[0].value }}`)
+          : formValues[dynamicAudiosKey] || [];
 
       const audioUrlConnections = connectedEdges.filter((e) =>
         ["audioInput", "videoInput5"].includes(e.targetHandle)
@@ -1101,7 +1144,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       const dynamicImageUrl =
         imageUrlConnections.length > 0
           ? `{{ ${imageUrlConnections[0].source}.outputs[0].value }}`
-          : node.data?.formValues?.image_url || null;
+          : formValues?.image_url || null;
 
       const lastImageConnections = connectedEdges.filter(
         (e) => e.targetHandle === "videoInput3"
@@ -1110,21 +1153,21 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       const dynamicVideoUrl =
         videoUrlConnections.length > 0
           ? `{{ ${videoUrlConnections[0].source}.outputs[0].value }}`
-          : node.data?.formValues?.video_url || null;
+          : formValues?.video_url || null;
 
       const dynamicAudioUrl =
         audioUrlConnections.length > 0
           ? `{{ ${audioUrlConnections[0].source}.outputs[0].value }}`
-          : node.data?.formValues?.audio_url || null;
+          : formValues?.audio_url || null;
 
       const dynamicLastImage =
         lastImageConnections.length > 0
           ? `{{ ${lastImageConnections[0].source}.outputs[0].value }}`
-          : node.data?.formValues?.last_image || null; // || node.data?.outputs?.[0]?.value 
+          : formValues?.last_image || null; // || node.data?.outputs?.[0]?.value 
 
       const localSources = {
-        ...node.data?.formValues,
-        prompt: dynamicPrompt ? dynamicPrompt : node.data?.formValues?.prompt,
+        ...formValues,
+        prompt: dynamicPrompt ? dynamicPrompt : formValues?.prompt,
         system_prompt: dynamicSystemPrompt,
         images_list: dynamicImagesList,
         images: dynamicImagesList,
@@ -1135,6 +1178,9 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         image: dynamicImageUrl,
         last_image: dynamicLastImage,
         videos_list: dynamicVideosList,
+        video_files: dynamicVideosList,
+        audios_list: dynamicAudiosList,
+        audio_files: dynamicAudiosList,
       };
 
       if (node.type === "apiNode") {
@@ -1159,7 +1205,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       }
 
       let params = {};
-      const input_params = node.data?.formValues || {};
+      const input_params = formValues || {};
       let output_params = {};
 
       if (node.type === "apiNode") {
@@ -1427,7 +1473,9 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       setLoadingNodes({});
       const savedWorkflowId = await handleSaveWorkFlow();
 
-      const response = await axios.post(`/api/workflow/${workflowId}/run`, {});
+      const response = await axios.post(`/api/workflow/${workflowId}/run`, {
+        cost: totalWorkflowCost
+      });
       console.log("run data:", response.data);
       const newRunId = response.data.run_id;
       setRunId(newRunId);
@@ -1601,7 +1649,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         })(),
         textInput: "blue", textInput2: "green", textInput3: "green", textInput4: "blue", textOutput: "blue",
         imageInput: "blue", imageInput2: "green", imageInput3: "green", imageOutput: "green",
-        videoInput: "blue", videoInput2: "green", videoInput3: "green", videoInput4: "orange", videoInput5: "yellow", videoInput6: "green", videoInput7: "orange", videoOutput: "orange",
+        videoInput: "blue", videoInput2: "green", videoInput3: "green", videoInput4: "orange", videoInput5: "yellow", videoInput6: "green", videoInput7: "orange", videoInput8: "yellow", videoOutput: "orange",
         audioInput: "yellow", audioInput2: "blue", audioInput3: "green", audioInput4: "orange", audioOutput: "yellow",
       }
     },
@@ -1660,7 +1708,8 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         const hasLastImage = "last_image" in formValues;
         const hasVideoUrl = "video_url" in formValues;
         const hasVideoAudioUrl = "audio_url" in formValues;
-        const hasVideosList = "videos_list" in formValues;
+        const hasVideosList = "videos_list" in formValues || "video_files" in formValues;
+        const hasAudiosList = "audios_list" in formValues || "audio_files" in formValues;
         validHandles = [
           hasVideoPrompt && "videoInput",
           hasVideoImageUrl && "videoInput2",
@@ -1669,6 +1718,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
           hasVideoAudioUrl && "videoInput5",
           hasVideoImagesList && "videoInput6",
           hasVideosList && "videoInput7",
+          hasAudiosList && "videoInput8",
         ].filter(Boolean);
         break;
 
@@ -1751,7 +1801,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       apiInput: "blue", apiInput2: "green", apiInput3: "green", apiOutput: "green",
       textInput: "blue", textInput2: "green", textInput3: "green", textInput4: "blue", textOutput: "blue",
       imageInput: "blue", imageInput2: "green", imageInput3: "green", imageOutput: "green",
-      videoInput: "blue", videoInput2: "green", videoInput3: "green", videoInput4: "orange", videoInput5: "yellow", videoInput6: "green", videoInput7: "orange", videoOutput: "orange",
+      videoInput: "blue", videoInput2: "green", videoInput3: "green", videoInput4: "orange", videoInput5: "yellow", videoInput6: "green", videoInput7: "orange", videoInput8: "yellow", videoOutput: "orange",
       audioInput: "yellow", audioInput2: "blue", audioInput3: "green", audioInput4: "orange", audioOutput: "yellow",
     };
 
@@ -1777,7 +1827,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       const nodeTypeToHandles = {
         textNode: ["textInput", "textInput2", "textInput3", "textInput4"],
         imageNode: ["imageInput", "imageInput2", "imageInput3"],
-        videoNode: ["videoInput", "videoInput2", "videoInput3", "videoInput4", "videoInput5", "videoInput6", "videoInput7"],
+        videoNode: ["videoInput", "videoInput2", "videoInput3", "videoInput4", "videoInput5", "videoInput6", "videoInput7", "videoInput8"],
         audioNode: ["audioInput", "audioInput2", "audioInput3", "audioInput4"],
         apiNode: ["apiInput", "apiInput2", "apiInput3"],
         concatNode: ["concatInput"],
@@ -1946,7 +1996,8 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
 
   const selectedNodes = nodes.filter(node => node.selected);
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
-
+  const { generationCost, isRefreshingCost } = useGenerationCost(selectedNode?.data?.selectedModel, selectedNode?.data?.formValues);
+  
   const updateNodeFromPanel = useCallback((key, value) => {
     if (!selectedNode) return;
 
@@ -2146,7 +2197,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
                   suppressHydrationWarning={true}
                   disabled={isRunning === 1 || !interactionMode}
                   onClick={handleRunWorkflow}
-                  className="flex items-center gap-2 px-4 py-1.5 border border-gray-600/70 bg-blue-500 text-white text-sm rounded-full group cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:bg-black hover:text-white whitespace-nowrap"
+                  className="flex items-center gap-2 px-4 py-1.5 border border-gray-600/70 bg-blue-500 text-white text-sm rounded-full font-semibold group cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:bg-black hover:text-white whitespace-nowrap"
                 >
                   {isRunning === 1 ? (
                     <>
@@ -2154,7 +2205,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
                     </>
                   ) : (
                     <>
-                      <FaPlay size={16} /> Run All
+                      <FaPlay size={16} /> Run All {parseFloat(totalWorkflowCost) > 0 && `($${totalWorkflowCost})`}
                     </>
                   )}
                 </button>
@@ -2631,7 +2682,19 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
                   {loadingNodes[selectedNode.id] ? (
                     <><div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin"></div>Generating...</>
                   ) : (
-                    <><BsArrowUpCircleFill size={18} /> Generate</>
+                    <>
+                      <FaPlay size={16} /> 
+                      Generate
+                      {generationCost !== null && (
+                        <span className="text-xs font-medium">
+                          {isRefreshingCost ? (
+                            <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block align-middle"></div>
+                          ) : (
+                            generationCost === 0 ? 'Free' : `$${generationCost}`
+                          )}
+                        </span>
+                      )}
+                    </>
                   )}
                 </button>
               )}

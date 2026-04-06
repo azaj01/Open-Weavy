@@ -15,6 +15,7 @@ import { MdOutlineFileDownload } from "react-icons/md";
 import { FaAngleLeft, FaAngleRight } from "react-icons/fa6";
 import NodeSendButton from "./NodeSendButton";
 import NodeOptionsMenu from "./NodeOptionsMenu";
+import { useGenerationCost } from "./useGenerationCost";
 
 const inputHandles = [
   "audioInput",
@@ -51,7 +52,14 @@ const AudioGeneration = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state) => state.edges);
   const properties = nodeSchemas?.categories?.audio?.models?.[selectedModel.id]?.input_schema?.schemas?.input_data?.properties;
+  const { generationCost, isRefreshingCost } = useGenerationCost(selectedModel, formValues);
   
+  useEffect(() => {
+    if (data.cost !== generationCost) {
+      data.onDataChange?.(id, { cost: generationCost });
+    }
+  }, [id, generationCost, data.cost]);
+
   const initializeFormData = (schemaProperties) => {
     const initialData = {};
     const fieldEntries = Object.entries(schemaProperties || {});
@@ -275,6 +283,8 @@ const AudioGeneration = ({ id, data, selected }) => {
         run_id: runId,
         model: selectedModel.id,
         params: params,
+        cost: generationCost,
+        node_id: "AI Audio"
       });
       pollNodeStatus(response.data.run_id);
     } catch(error) {
@@ -405,7 +415,7 @@ const AudioGeneration = ({ id, data, selected }) => {
 
   return (
     <div 
-      style={{ minHeight: 280, '--loader-color': '#eab308' }}
+      style={{ minHeight: 220, '--loader-color': '#eab308' }}
       className={`
         nowheel group flex flex-col flex-1 w-80 
         rounded-2xl border-2 relative transition-all duration-300 ease-in-out 
@@ -418,11 +428,26 @@ const AudioGeneration = ({ id, data, selected }) => {
       {data.isLoading && (
         <div className="loader-border" />
       )}
-      <h3 className="absolute -top-5 left-0 text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
-        Audio {id.replace(/^\D+/g, "")}
-      </h3>
+      <div className="flex items-center gap-2 absolute -top-5 left-0">
+        <h3 className="text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
+          Audio {id.replace(/^\D+/g, "")}
+        </h3>
+        {generationCost !== null && !selectedModel?.id.includes("passthrough") && (
+          <span className="text-xs text-yellow-500 -mt-0.5 font-medium flex items-center gap-1 opacity-80">
+            {isRefreshingCost ? (
+              <span className="flex items-center gap-1 italic text-yellow-200">
+                <div className="w-2 h-2 border-[1.5px] border-yellow-200/30 border-t-yellow-400 rounded-full animate-spin"></div>
+              </span>
+            ) : (
+              <span>
+                {generationCost === 0 ? 'Free' : (`$${generationCost}`)}
+              </span>
+            )}
+          </span>
+        )}
+      </div>
       <div className="flex flex-col">
-        <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 p-3">
+        <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 py-2 px-3">
           <div className="flex items-center gap-2.5">
             <div className={`p-1.5 rounded-lg ${selected ? "bg-yellow-500 text-black" : "bg-zinc-800 text-zinc-400"} transition-colors`}>
               <AiOutlineAudio size={14} />
@@ -508,9 +533,10 @@ const AudioGeneration = ({ id, data, selected }) => {
               <AudioPlayer 
                 src={currentOutput} 
                 nodeId={id}
+                className="flex flex-col items-center justify-center px-5 py-4 w-full h-full relative group transition-all duration-500 select-none bg-black/10 rounded-b-2xl"
               />
               {currentOutputList.length > 1 && (
-                <div className="flex items-center gap-2 mt-4 bg-white/5 border border-white/10 rounded-full px-2 py-1">
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/40 backdrop-blur-md border border-white/10 rounded-full px-2 py-1 z-10 shadow-xl">
                   <button
                     type="button"
                     suppressHydrationWarning={true}

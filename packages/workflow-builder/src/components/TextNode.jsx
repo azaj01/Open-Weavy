@@ -10,6 +10,7 @@ import UploadNode from "./UploadNode"
 import { TfiText } from "react-icons/tfi";
 import NodeSendButton from "./NodeSendButton";
 import NodeOptionsMenu from "./NodeOptionsMenu";
+import { useGenerationCost } from "./useGenerationCost";
 
 const inputHandles = [
   "textInput",
@@ -45,7 +46,14 @@ const TextGeneration = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state) => state.edges);
   const properties = nodeSchemas?.categories?.text?.models?.[selectedModel.id]?.input_schema?.schemas?.input_data?.properties;
+  const { generationCost, isRefreshingCost } = useGenerationCost(selectedModel, formValues);
   
+  useEffect(() => {
+    if (data.cost !== generationCost) {
+      data.onDataChange?.(id, { cost: generationCost });
+    }
+  }, [id, generationCost, data.cost]);
+
   const textareaRef = useRef(null);
 
   const initializeFormData = (schemaProperties) => {
@@ -271,6 +279,8 @@ const TextGeneration = ({ id, data, selected }) => {
         run_id: runId,
         model: selectedModel.id,
         params: params,
+        cost: generationCost,
+        node_id: "AI Text"
       });
       pollNodeStatus(response.data.run_id);
     } catch(error) {
@@ -425,11 +435,26 @@ const TextGeneration = ({ id, data, selected }) => {
       {data.isLoading && (
         <div className="loader-border" />
       )}
-      <h3 className="absolute -top-5 left-0 text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
-        Text {id.replace(/^\D+/g, "")}
-      </h3>
+      <div className="flex items-center gap-2 absolute -top-5 left-0">
+        <h3 className="text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
+          Text {id.replace(/^\D+/g, "")}
+        </h3>
+        {generationCost !== null && !selectedModel?.id.includes("passthrough") && (
+          <span className="text-xs text-blue-500 -mt-0.5 font-medium flex items-center gap-1 opacity-80">
+            {isRefreshingCost ? (
+              <span className="flex items-center gap-1 italic text-blue-200">
+                <div className="w-2 h-2 border-[1.5px] border-blue-200/30 border-t-blue-400 rounded-full animate-spin"></div>
+              </span>
+            ) : (
+              <span>
+                {generationCost === 0 ? 'Free' : `$${generationCost}`}
+              </span>
+            )}
+          </span>
+        )}
+      </div>
       <div className="flex flex-col">
-        <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 p-3">
+        <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 py-2 px-3">
           <div className="flex items-center gap-2.5">
             <div className={`p-1.5 rounded-lg ${selected ? "bg-blue-600 text-white" : "bg-zinc-800 text-zinc-400"} transition-colors`}>
               <TfiText size={14} />

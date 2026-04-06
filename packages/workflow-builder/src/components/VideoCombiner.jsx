@@ -9,6 +9,8 @@ import NodeSendButton from "./NodeSendButton";
 import { FaAngleLeft, FaAngleRight, FaAngleDown } from "react-icons/fa6";
 import NodeOptionsMenu from "./NodeOptionsMenu";
 import { TbArrowMerge } from "react-icons/tb";
+import { useGenerationCost } from "./useGenerationCost";
+import VideoPlayer from "./VideoPlayer";
 
 const inputHandles = [
   "videoInput7", // videos_list
@@ -32,11 +34,6 @@ const VideoCombiner = ({ id, data, selected }) => {
   const [loading, setLoading] = useState(0);
   const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1);
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [isMuted, setIsMuted] = useState(true);
   const videoRef = useRef(null);
   const outputHistory = data.outputHistory || [];
   const prevHistoryLengthRef = useRef(outputHistory.length);
@@ -47,6 +44,14 @@ const VideoCombiner = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state) => state.edges);
   const properties = nodeSchemas?.categories?.utility?.models?.[selectedModel.id]?.input_schema?.schemas?.input_data?.properties;
+
+  const { generationCost, isRefreshingCost } = useGenerationCost(selectedModel, formValues);
+  
+  useEffect(() => {
+    if (data.cost !== generationCost) {
+      data.onDataChange?.(id, { cost: generationCost });
+    }
+  }, [id, generationCost, data.cost]);
 
   const initializeFormData = (schemaProperties) => {
     const initialData = {};
@@ -263,6 +268,8 @@ const VideoCombiner = ({ id, data, selected }) => {
         run_id: runId,
         model: selectedModel.id,
         params: params,
+        cost: generationCost,
+        node_id: "Video Combiner"
       });
       pollNodeStatus(response.data.run_id);
     } catch(error) {
@@ -398,11 +405,26 @@ const VideoCombiner = ({ id, data, selected }) => {
       {data.isLoading && (
         <div className="loader-border" />
       )}
-      <h4 className="absolute -top-5 left-0 text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
-        Video Combiner {id.replace(/^\D+/g, "")}
-      </h4>
+      <div className="flex items-center gap-2 absolute -top-5 left-0">
+        <h4 className="text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
+          Video Combiner {id.replace(/^\D+/g, "")}
+        </h4>
+        {generationCost !== null && !selectedModel?.id.includes("passthrough") && (
+          <span className="text-xs text-orange-500 -mt-0.5 font-medium flex items-center gap-1 opacity-80">
+            {isRefreshingCost ? (
+              <span className="flex items-center gap-1 italic text-orange-200">
+                <div className="w-2 h-2 border-[1.5px] border-orange-200/30 border-t-orange-400 rounded-full animate-spin"></div>
+              </span>
+            ) : (
+              <span>
+                {generationCost === 0 ? 'Free' : (`$${generationCost}`)}
+              </span>
+            )}
+          </span>
+        )}
+      </div>
       <div className="flex flex-col">
-        <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 p-3">
+        <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 py-2 px-3">
           <div className="flex items-center gap-2.5">
             <div className={`p-1.5 rounded-lg ${selected ? "bg-orange-600 text-white" : "bg-zinc-800 text-zinc-400"} transition-colors`}>
               <TbArrowMerge size={14} className="rotate-90" />
@@ -479,36 +501,12 @@ const VideoCombiner = ({ id, data, selected }) => {
             {data.errorMsg}
           </div>
         ) : currentOutput ? (
-          <div className="h-full w-full relative group/video">
-            <video
-              ref={videoRef}
+          <div className="h-full w-full relative">
+            <VideoPlayer 
               key={currentOutput}
               src={currentOutput}
-              autoPlay
-              muted={isMuted}
-              loop
-              playsInline
-              onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
-              onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
-              onPlay={() => setIsPlaying(true)}
-              onPause={() => setIsPlaying(false)}
-              className="w-full h-full object-contain cursor-pointer"
+              accentColor="#f97316"
             />
-            {/* Simple controls overlay */}
-            <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover/video:opacity-100 transition-opacity">
-              <div className="flex items-center gap-2">
-                <button 
-                  type="button"
-                  suppressHydrationWarning={true}
-                  onClick={() => isPlaying ? videoRef.current.pause() : videoRef.current.play()} className="text-white"
-                >
-                  {isPlaying ? <IoPause size={14} /> : <IoPlay size={14} />}
-                </button>
-                <div className="flex-grow h-1 bg-white/20 rounded-full overflow-hidden">
-                  <div className="h-full bg-orange-500" style={{ width: `${(currentTime/duration)*100}%` }} />
-                </div>
-              </div>
-            </div>
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center text-zinc-400 gap-2">

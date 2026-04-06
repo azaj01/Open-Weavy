@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { FaPause, FaPlay, FaVolumeMute, FaVolumeUp } from "react-icons/fa";
 
-const AudioPlayer = ({ src }) => {
+const AudioPlayer = ({ src, className }) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -84,7 +84,7 @@ const AudioPlayer = ({ src }) => {
   const bars = [40, 70, 45, 90, 65, 30, 85, 50, 75, 40, 60, 95, 20, 55, 80, 35, 70, 45, 90, 60];
 
   return (
-    <div className="flex flex-col items-center justify-center p-4 w-full h-full bg-gradient-to-br from-[#121418] to-[#08090a] rounded-xl border border-white/5 relative group transition-all duration-500 select-none">
+    <div className={className || "flex flex-col items-center justify-center p-4 w-full h-full bg-gradient-to-br from-[#121418] to-[#08090a] rounded-xl border border-white/5 relative group transition-all duration-500 select-none"}>
       <audio ref={audioRef} src={src} crossOrigin="anonymous" />
       <div 
         className="flex items-center justify-center gap-[2px] w-full h-12 mb-4 px-4 overflow-hidden"
@@ -122,22 +122,18 @@ const AudioPlayer = ({ src }) => {
           )}
         </button>
         <div className="flex flex-col flex-grow gap-1.5 min-w-0">
-          <div className="relative w-full h-1.5 bg-white/5 rounded-full group/seek overflow-hidden h-3 flex items-center">
-            <div className="absolute w-full h-1.5 bg-white/5 rounded-full" />
-            <div 
-              className="absolute left-0 top-1/2 -translate-y-1/2 h-1.5 bg-gradient-to-r from-blue-600 to-blue-400 rounded-full transition-all duration-100 ease-linear shadow-[0_0_15px_rgba(59,130,246,0.6)]"
-              style={{ width: `${progress}%` }}
-            />
-            <input
-              type="range"
-              min="0"
-              max="100"
-              step="0.1"
-              value={progress}
-              onChange={handleSeek}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
-            />
-          </div>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="0.1"
+            value={progress || 0}
+            onChange={handleSeek}
+            className="w-full h-1.5 rounded-full appearance-none cursor-pointer hover:h-2 transition-all seek-bar active:-translate-y-px"
+            style={{
+              background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${progress || 0}%, rgba(255, 255, 255, 0.1) ${progress || 0}%, rgba(255, 255, 255, 0.1) 100%)`
+            }}
+          />
           <div className="flex justify-between items-center w-full">
             <span className="text-[10px] text-gray-500 font-medium tracking-tight tabular-nums">
               {formatTime(currentTime)}

@@ -12,6 +12,7 @@ import { MdOutlineFileDownload } from "react-icons/md";
 import { HiOutlineViewGrid } from "react-icons/hi";
 import NodeSendButton from "./NodeSendButton";
 import NodeOptionsMenu from "./NodeOptionsMenu";
+import { useGenerationCost } from "./useGenerationCost";
 
 const inputHandles = [
   "imageInput",
@@ -48,7 +49,14 @@ const ImageGeneration = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state) => state.edges);
   const properties = nodeSchemas?.categories?.image?.models?.[selectedModel.id]?.input_schema?.schemas?.input_data?.properties;
+  const { generationCost, isRefreshingCost } = useGenerationCost(selectedModel, formValues);
   
+  useEffect(() => {
+    if (data.cost !== generationCost) {
+      data.onDataChange?.(id, { cost: generationCost });
+    }
+  }, [id, generationCost, data.cost]);
+
   const initializeFormData = (schemaProperties) => {
     const initialData = {};
     const fieldEntries = Object.entries(schemaProperties || {});
@@ -270,6 +278,8 @@ const ImageGeneration = ({ id, data, selected }) => {
         run_id: runId,
         model: selectedModel.id,
         params: params,
+        cost: generationCost,
+        node_id: "AI Image"
       });
       pollNodeStatus(response.data.run_id);
     } catch(error) {
@@ -450,7 +460,7 @@ const ImageGeneration = ({ id, data, selected }) => {
 
   return (
     <div 
-      style={{ minHeight: 280, '--loader-color': '#10b981' }} 
+      style={{ minHeight: 220, '--loader-color': '#10b981' }} 
       className={`
         nowheel group flex flex-col flex-1 w-80 
         rounded-2xl border-2 relative transition-all duration-300 ease-in-out 
@@ -463,9 +473,24 @@ const ImageGeneration = ({ id, data, selected }) => {
       {data.isLoading && (
         <div className="loader-border" />
       )}
-      <h3 className="absolute -top-5 left-0 text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
-        Image {id.replace(/^\D+/g, "")}
-      </h3>
+      <div className="flex items-center gap-2 absolute -top-5 left-0">
+        <h3 className="text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
+          Image {id.replace(/^\D+/g, "")}
+        </h3>
+        {generationCost !== null && !selectedModel?.id.includes("passthrough") && (
+          <span className="text-xs text-green-500 -mt-0.5 font-medium flex items-center gap-1 opacity-80">
+            {isRefreshingCost ? (
+              <span className="flex items-center gap-1 italic text-emerald-200">
+                <div className="w-2 h-2 border-[1.5px] border-emerald-200/30 border-t-emerald-400 rounded-full animate-spin"></div>
+              </span>
+            ) : (
+              <span>
+                {generationCost === 0 ? 'Free' : (`$${generationCost}`)}
+              </span>
+            )}
+          </span>
+        )}
+      </div>
       <div className="flex flex-col">
         <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 p-3">
           <div className="flex items-center gap-2.5">

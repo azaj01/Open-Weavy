@@ -227,7 +227,7 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
             ) : meta.field === 'video' ? (
               <video src={formValues[fieldName]} className="w-24 h-24 object-cover border border-white/10 rounded-xl shadow-lg" />
             ) : meta.field === 'audio' && (
-              <div className="flex flex-col w-full h-16 border border-white/10 rounded-xl overflow-hidden shadow-lg">
+              <div className="flex flex-col w-full h-20 border border-white/10 rounded-xl overflow-hidden shadow-lg">
                 <AudioPlayer src={formValues[fieldName]} />
               </div>
             )}
@@ -255,18 +255,22 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
         </div>
         <div className="grid grid-cols-3 gap-2">
           {imageList.map((url, idx) => (
-            <div key={idx} className="flex items-center gap-2 relative group overflow-hidden">
+            <div key={idx} className={`flex items-center gap-2 relative group overflow-hidden ${['audios_list', 'audio_files'].includes(meta.field) ? 'col-span-full' : ''}`}>
               {meta.field === 'images_list' ? (
                 <img 
                   src={url} 
                   alt="Preview" 
                   className="w-full h-full aspect-[1/1] object-cover border border-gray-500 rounded" 
                 />
-              ) : meta.field === 'videos_list' && (
+              ) : ['videos_list', 'video_files'].includes(meta.field) ? (
                 <video 
                   src={url} 
                   className="w-full h-full aspect-[1/1] object-cover border border-gray-500 rounded" 
                 />
+              ) : ['audios_list', 'audio_files'].includes(meta.field) && (
+                <div className="flex flex-col w-full h-20 border border-white/10 rounded-xl overflow-hidden shadow-lg">
+                  <AudioPlayer src={url} />
+                </div>
               )}
               <div className="inset-0 group-hover:bg-gray-600/40 absolute rounded">
                 <button 
