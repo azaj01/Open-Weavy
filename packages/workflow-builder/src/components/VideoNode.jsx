@@ -1,30 +1,17 @@
 import { downloadFile, videoModels } from "./utility";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { BsArrowUpCircleFill } from "react-icons/bs";
-import { IoClose, IoTimeOutline, IoVideocamOutline } from "react-icons/io5";
+import { IoTimeOutline, IoVideocamOutline, IoTrashOutline, IoPlay, IoPause, IoVolumeHigh, IoVolumeMute } from "react-icons/io5";
 import { Handle, Position, useReactFlow, useStore, useUpdateNodeInternals } from "reactflow";
 import { getRunId, getWorkflowId } from "./WorkflowStore";
 import axios from "axios";
-import { toast } from "react-toastify";
+import { toast } from "react-hot-toast";
 import UploadNode from "./UploadNode";
 import { SlOptions } from "react-icons/sl";
 import { MdOutlineFileDownload } from "react-icons/md";
-
-const aspectRatios = [
-  { name: "Landscape", ratio: "16:9", resolution: "1024 576", width: 16, height: 9, r: 16/9 },
-  { name: "Portrait", ratio: "9:16", resolution: "576 1024", width: 9, height: 16, r: 9/16 },
-  { name: "Square", ratio: "1:1", resolution: "1024 1024", width: 16, height: 16, r: 1/1 },
-  { name: "Landscape", ratio: "4:3", resolution: "1024 768", width: 16, height: 12, r: 4/3 },
-  { name: "Portrait", ratio: "3:4", resolution: "768 1024", width: 12, height: 16, r: 3/4 },
-  { name: "Landscape", ratio: "21:9", resolution: "1024 439", width: 18, height: 9, r: 21/9 },
-  { name: "Portrait", ratio: "9:21", resolution: "439 1024", width: 9, height: 18, r: 9/21 },
-  { name: "Landscape", ratio: "5:4", resolution: "1024 819", width: 16, height: 12, r: 5/4 },
-  { name: "Portrait", ratio: "4:5", resolution: "819 1024", width: 12, height: 16, r: 4/5 },
-  { name: "Landscape", ratio: "5:6", resolution: "1024 819", width: 16, height: 12, r: 5/6 },
-  { name: "Portrait", ratio: "6:5", resolution: "819 1024", width: 12, height: 16, r: 6/5 },
-  { name: "Landscape", ratio: "3:2", resolution: "1344 896", width: 8, height: 4, r: 3/2 },
-  { name: "Portrait", ratio: "2:3", resolution: "896 1344", width: 4, height: 8, r: 2/3 },
-];
+import NodeSendButton from "./NodeSendButton";
+import { FaAngleLeft, FaAngleRight } from "react-icons/fa6";
+import NodeOptionsMenu from "./NodeOptionsMenu";
 
 const inputHandles = [
   "videoInput",   // prompt
@@ -33,6 +20,7 @@ const inputHandles = [
   "videoInput4",  // video_url
   "videoInput5",  // audio_url
   "videoInput6",  // images_list
+  "videoInput7",  // videos_list
 ];
 
 const outputHandles = [
@@ -52,8 +40,18 @@ const VideoGeneration = ({ id, data, selected }) => {
   const [formValues, setFormValues] = useState(data.formValues || {});
   const [dropDown, setDropDown] = useState(0);
   const [loading, setLoading] = useState(0);
+  const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1);
+  const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(true);
+  const videoRef = useRef(null);
+  const outputHistory = data.outputHistory || [];
+  const prevHistoryLengthRef = useRef(outputHistory.length);
   const workflowId = getWorkflowId();
-  const runId = getRunId();
+  const runId = data.runId ?? getRunId();
   const nodeSchemas = data.nodeSchemas || {};
   const { setNodes, setEdges } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
@@ -127,6 +125,13 @@ const VideoGeneration = ({ id, data, selected }) => {
       },
       {}
     );
+
+    // Preserve UI-only flags that are not part of the model schema
+    const UI_KEYS = ["make_output", "make_input"];
+    UI_KEYS.forEach((k) => {
+      if (data.formValues?.[k] !== undefined) merged[k] = data.formValues[k];
+    });
+
     setFormValues(merged);
   };
 
@@ -148,7 +153,18 @@ const VideoGeneration = ({ id, data, selected }) => {
 
       data.onDataChange(id, { triggerRun: false });
     }
-  }, [data.selectedModel, data.triggerRun]);
+
+    if (data.outputHistory && data.outputHistory.length > 0) {
+      if (currentHistoryIndex === -1) {
+        setCurrentHistoryIndex(data.outputHistory.length - 1);
+        setCurrentVideoIndex(0);
+      } else if (data.outputHistory.length > prevHistoryLengthRef.current) {
+        setCurrentHistoryIndex(data.outputHistory.length - 1);
+        setCurrentVideoIndex(0);
+      }
+    }
+    prevHistoryLengthRef.current = data.outputHistory ? data.outputHistory.length : 0;
+  }, [data.selectedModel, data.triggerRun, data.outputHistory]);
 
   useEffect(() => {
     updateNodeInternals(id);
@@ -191,14 +207,27 @@ const VideoGeneration = ({ id, data, selected }) => {
     const interval = setInterval(() => {
       axios.get(`/api/workflow/run/${run_id}/status`)
       .then((response) => {
-        const nodeData = response.data.nodes?.[id];
+        const nodesInRes = response.data.nodes || {};
+        const nodeData = nodesInRes[id] || Object.entries(nodesInRes).find(([key]) => 
+          key.toLowerCase().replace(/\s+/g, '') === id.toLowerCase().replace(/\s+/g, '')
+        )?.[1];
+
         if (!nodeData || nodeData.length === 0) return;
         const latest = nodeData[nodeData.length - 1];
-        if (latest.status === "succeeded") {
+        if (latest.status === "succeeded" || latest.status === "completed") {
           const output = latest.result.outputs;
-          const val = output[0].value || "";
-          data?.onDataChange?.(id, { outputs: output, resultUrl: val, isLoading: false, errorMsg: null });
+          const val = output[0]?.value || "";
+          
+          const currentHistory = data.outputHistory || [];
+          const result = latest.result;
+          const isAlreadyInHistory = currentHistory.some(h => h.result?.id === result.id);
+          const newHistory = isAlreadyInHistory 
+            ? currentHistory.map(h => h.result?.id === result.id ? latest : h)
+            : [...currentHistory, latest];
 
+          data?.onDataChange?.(id, { outputs: output, resultUrl: val, isLoading: false, errorMsg: null, outputHistory: newHistory });
+          setCurrentHistoryIndex(newHistory.length - 1);
+          setCurrentVideoIndex(0);
           clearInterval(interval);
         }
 
@@ -210,7 +239,8 @@ const VideoGeneration = ({ id, data, selected }) => {
             errorMsg = outputs[0].value.error; 
           }
           toast.error(`Node ${id} failed`);
-          data.onDataChange(id, { isLoading: false, errorMsg });
+          const currentHistory = data.outputHistory || [];
+          data.onDataChange(id, { isLoading: false, errorMsg, outputHistory: currentHistory });
           clearInterval(interval);
         }
       })
@@ -272,12 +302,13 @@ const VideoGeneration = ({ id, data, selected }) => {
     if (window.confirm(`Are you sure you want to delete this ${id} node?`)) {
       setNodes((nds) => nds.filter((n) => n.id !== id));
       setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
-      toast.info(`Deleted node ${id}`);
+      toast.success(`Deleted node ${id}`);
     };
   };
 
   const hasPrompt = properties && "prompt" in properties && !data.selectedModel?.id.includes("passthrough");
   const hasImagesList = properties && "images_list" in properties && !data.selectedModel?.id.includes("passthrough");
+  const hasVideosList = properties && "videos_list" in properties && !data.selectedModel?.id.includes("passthrough");
   const hasLastImage = properties && "last_image" in properties && !data.selectedModel?.id.includes("passthrough");
   const hasImageUrl = properties && "image_url" in properties && !data.selectedModel?.id.includes("passthrough");
   const hasVideoUrl = properties && "video_url" in properties && !data.selectedModel?.id.includes("passthrough");
@@ -292,6 +323,7 @@ const VideoGeneration = ({ id, data, selected }) => {
         hasVideoUrl && "videoInput4",
         hasAudioUrl && "videoInput5",
         hasImagesList && "videoInput6",
+        hasVideosList && "videoInput7",
       ].filter(Boolean);
 
       setEdges((prevEdges) =>
@@ -323,107 +355,328 @@ const VideoGeneration = ({ id, data, selected }) => {
     setConnectedOutputs(connectedOutputs);
   }, [edges, id]);
 
+  const handlePrev = (e) => {
+    e.stopPropagation();
+    if (currentHistoryIndex > 0) {
+      const newIndex = currentHistoryIndex - 1;
+      setCurrentHistoryIndex(newIndex);
+      setCurrentVideoIndex(0);
+      const viewing = outputHistory[newIndex]?.result?.outputs?.[0]?.value;
+      setNodes((nds) => nds.map((n) => {
+        if (n.id === id) {
+          return { ...n, data: { ...n.data, viewingOutput: viewing } };
+        }
+        return n;
+      }));
+    }
+  };
+
+  const handleNext = (e) => {
+    e.stopPropagation();
+    if (currentHistoryIndex < outputHistory.length - 1) {
+      const newIndex = currentHistoryIndex + 1;
+      setCurrentHistoryIndex(newIndex);
+      setCurrentVideoIndex(0);
+      const viewing = outputHistory[newIndex]?.result?.outputs?.[0]?.value;
+      setNodes((nds) => nds.map((n) => {
+        if (n.id === id) {
+          return { ...n, data: { ...n.data, viewingOutput: viewing } };
+        }
+        return n;
+      }));
+    }
+  };
+
+  const handleDeleteHistory = async (e) => {
+    e.stopPropagation();
+    const currentHistory = outputHistory[currentHistoryIndex];
+    if (!currentHistory || !currentHistory.node_run_id) return;
+
+    if (window.confirm("Are you sure you want to delete this history entry?")) {
+      try {
+        await axios.delete(`/api/workflow/node-run/${currentHistory.node_run_id}`);
+        const newHistory = outputHistory.filter((_, i) => i !== currentHistoryIndex);
+        
+        data?.onDataChange?.(id, { 
+          outputHistory: newHistory,
+          ...(newHistory.length === 0 ? { outputs: [], resultUrl: null } : {})
+        });
+
+        if (newHistory.length === 0) {
+          setCurrentHistoryIndex(-1);
+        } else {
+          setCurrentHistoryIndex(Math.max(0, currentHistoryIndex - 1));
+        }
+        toast.success("History entry deleted");
+      } catch (error) {
+        toast.error(error.response?.data?.detail || "Failed to delete history entry");
+        console.error(error);
+      }
+    }
+  };
+
+  const currentOutputList = currentHistoryIndex !== -1 && outputHistory[currentHistoryIndex]
+    ? outputHistory[currentHistoryIndex]?.result?.outputs || []
+    : (data.outputs || []);
+
+  const currentOutput = currentOutputList.length > 0
+    ? currentOutputList[currentVideoIndex]?.value || currentOutputList[0]?.value || data.resultUrl
+    : data.resultUrl;
+
   return (
-    <div style={{ minHeight: 210 }} className={`nowheel group flex flex-col w-80 bg-[#0c0d0f] rounded-2xl border-2 relative transition-all duration-500 ease-in-out ${selected ? "border-white": "border-gray-500"}`}>
-      <h4 className="absolute -top-5 left-0 text-gray-300 text-xs">Video {id.replace(/^\D+/g, "")}</h4>
-      <div className="flex items-center justify-between bg-[#151618] rounded-t-2xl border-b border-gray-800 p-2">
-        <div className="flex items-center gap-3 w-full">
-          <button
-            type="button"
-            className={`p-1 rounded cursor-pointer text-white bg-transparent flex`}
-          >
-            <IoVideocamOutline size={18} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setDropDown(prev => prev === 1 ? 0: 1)}
-            className="flex items-center gap-1 text-xs text-center text-white cursor-pointer truncate"
-          >
-            {selectedModel.name}
-          </button>
-          <button
-            type="button"
-            onClick={handleDeleteNode}
-            className="font-bold p-1 hover:bg-[#494c52] rounded cursor-pointer text-gray-400 hover:text-red-500 ml-auto"
-          >
-            <IoClose size={18} />
-          </button>
+    <div 
+      style={{ minHeight: 280, '--loader-color': '#f97316' }} 
+      className={`
+        nowheel group flex flex-col w-80 
+        rounded-2xl border-2 relative transition-all duration-300 ease-in-out 
+        ${selected 
+          ? "border-orange-600 shadow-[0_0_25px_rgba(249,115,22,0.3)] scale-[1.02] ring-1 ring-orange-500/20" 
+          : "border-zinc-800 hover:border-zinc-700 shadow-lg"} 
+        bg-[#0c0d0f]/95 backdrop-blur-sm
+      `}
+    >
+      {data.isLoading && (
+        <div className="loader-border" />
+      )}
+      <h4 className="absolute -top-5 left-0 text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
+        Video {id.replace(/^\D+/g, "")}
+      </h4>
+      <div className="flex flex-col">
+        <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 p-3">
+          <div className="flex items-center gap-2.5">
+            <div className={`p-1.5 rounded-lg ${selected ? "bg-orange-600 text-white" : "bg-zinc-800 text-zinc-400"} transition-colors`}>
+              <IoVideocamOutline size={14} />
+            </div>
+            <h3 className="text-xs font-bold text-zinc-100">
+              {selectedModel.name}
+            </h3>
+          </div>
+          {outputHistory.length > 0 && (
+            <div className="absolute -top-10 right-0 bg-[#0c0d0f]/95 flex items-center gap-1 p-1 border border-white/10 rounded-full ml-auto">
+              <button 
+                type="button"
+                suppressHydrationWarning={true}
+                onClick={handlePrev}
+                disabled={currentHistoryIndex <= 0}
+                className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-white/10 text-white/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                title="Previous"
+              >
+                <FaAngleLeft size={10} />
+              </button>
+              <div className="flex items-center gap-1.5 px-0.5">
+                <span className="text-[9px] font-medium text-white/90 tabular-nums tracking-wide">
+                  {currentHistoryIndex + 1}/{outputHistory.length}
+                </span>
+                <div className="w-[1px] h-2.5 bg-white/10" />
+                <button 
+                  type="button"
+                  suppressHydrationWarning={true}
+                  onClick={handleDeleteHistory}
+                  className="p-1 hover:bg-red-500/10 rounded-full text-zinc-400 hover:text-red-500 transition-colors flex items-center justify-center"
+                  title="Delete history"
+                >
+                  <IoTrashOutline size={10} />
+                </button>
+                <div className="w-[1px] h-2.5 bg-white/10" />
+                <NodeSendButton 
+                  id={id} 
+                  data={data} 
+                  outputHistory={outputHistory} 
+                  currentHistoryIndex={currentHistoryIndex} 
+                  currentOutputIndex={currentVideoIndex}
+                />
+              </div>
+              <button 
+                type="button"
+                suppressHydrationWarning={true}
+                onClick={handleNext}
+                disabled={currentHistoryIndex >= outputHistory.length - 1}
+                className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-white/10 text-white/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                title="Next"
+              >
+                <FaAngleRight size={10} />
+              </button>
+            </div>
+          )}
+          <NodeOptionsMenu 
+            nodeId={id}
+            onDuplicate={data.duplicateNode}
+            onDelete={handleDeleteNode}
+            downloadUrl={currentOutput}
+          />
         </div>
       </div>
       {data.selectedModel?.id === "video-passthrough" ? (
-        <div className="w-full h-full">
+        <div className="w-full h-full flex-1">
           <UploadNode id={id} data={data} formValues={formValues} setFormValues={setFormValues} selectedModel={selectedModel} loading={loading} uploadType="upload" acceptType="video" />
         </div>
       ) : (
         <div className="flex items-center flex-grow justify-center w-full h-full rounded transition-all duration-500">
           {data.isLoading ? (
-            <div className="flex items-center justify-center w-full h-full overflow-hidden aspect-[1/1]">
-              <div className="flex items-center justify-center text-xs skeleton w-full h-full text-white">Generating...</div>
+            <div className="flex items-center justify-center w-full h-full overflow-hidden aspect-[1/1] bg-white/5 animate-pulse rounded-b-2xl">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-[10px] font-bold text-orange-500 tracking-wider uppercase">Generating...</span>
+              </div>
             </div>
           ) : data.errorMsg ? (
-            <div className="text-red-300 text-sm p-2">
-              {data.errorMsg || "Failed Generation"}
+            <div className="text-red-400 text-xs font-medium p-3 bg-red-500/10 rounded-xl border border-red-500/20 m-3 w-full">
+              {data.errorMsg || "Generation failed"}
             </div>
-          ) : data.resultUrl && !data.isLoading ? (
-            <div className="h-full w-full relative">
-              <div 
-                className="absolute top-2 right-2 z-10" 
-                onClick={(e) => {e.stopPropagation();e.preventDefault();}}
-                onBlur={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget)) {
-                    setDropDown(0);
+          ) : currentOutput && !data.isLoading ? (
+            <div className="h-full w-full relative group/video">
+              {currentOutputList.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    suppressHydrationWarning={true}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCurrentVideoIndex((prev) => (prev > 0 ? prev - 1 : currentOutputList.length - 1));
+                    }}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover/video:opacity-100 transition-opacity hover:bg-black/70"
+                  >
+                    <FaAngleLeft size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    suppressHydrationWarning={true}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCurrentVideoIndex((prev) => (prev < currentOutputList.length - 1 ? prev + 1 : 0));
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover/video:opacity-100 transition-opacity hover:bg-black/70"
+                  >
+                    <FaAngleRight size={16} />
+                  </button>
+                </>
+              )}
+              <video
+                ref={videoRef}
+                key={currentOutput}
+                src={currentOutput}
+                autoPlay
+                muted={isMuted}
+                loop
+                playsInline
+                onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
+                onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (videoRef.current.paused) {
+                    videoRef.current.play();
+                  } else {
+                    videoRef.current.pause();
                   }
                 }}
-              >
-                <button
-                  type="button"
-                  onClick={() => setDropDown(prev => prev === 2 ? 0: 2)}
-                  className="text-white bg-black/20 rounded-full cursor-pointer p-1 hover:bg-black/70"
+                className="w-full h-full object-contain rounded-b-xl animate-in fade-in duration-500 cursor-pointer"
+              />
+              {!isPlaying && (
+                <div 
+                  className="absolute inset-0 flex items-center justify-center pointer-events-none group-hover/video:opacity-100 transition-opacity duration-300"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    videoRef.current.play();
+                    setIsPlaying(true);
+                  }}
                 >
-                  <SlOptions />
-                </button>
-                {dropDown === 2 && (
-                  <div className="absolute right-0 top-7 z-10 flex flex-col gap-1 bg-[#1c1e21] border border-gray-500 p-1 rounded flex flex-col overflow-y-auto">
+                  <div className="w-16 h-16 bg-black/20 backdrop-blur-md rounded-full flex items-center justify-center text-white border border-white/20 shadow-2xl transform group-hover/video:scale-110 transition-transform pointer-events-auto cursor-pointer">
+                    <IoPlay size={32} className="ml-1" />
+                  </div>
+                </div>
+              )}
+              <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover/video:opacity-100 transition-opacity duration-300 rounded-b-xl flex flex-col gap-2">
+                <input
+                  type="range"
+                  min="0"
+                  max={duration || 0}
+                  value={currentTime}
+                  onChange={(e) => {
+                    const time = parseFloat(e.target.value);
+                    videoRef.current.currentTime = time;
+                    setCurrentTime(time);
+                  }}
+                  className="w-full h-1 bg-white/20 rounded-full appearance-none cursor-pointer hover:h-1.5 transition-all seek-bar"
+                  style={{
+                    background: `linear-gradient(to right, #f97316 0%, #f97316 ${(currentTime / duration) * 100}%, rgba(255, 255, 255, 0.2) ${(currentTime / duration) * 100}%, rgba(255, 255, 255, 0.2) 100%)`
+                  }}
+                />
+                
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      onClick={() => downloadFile(data.resultUrl)}
-                      className="flex items-center gap-2 text-[10px] text-white cursor-pointer p-1 bg-transparent hover:bg-[#494c52] rounded-xs"
+                      suppressHydrationWarning={true}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (videoRef.current.paused) {
+                          videoRef.current.play();
+                          setIsPlaying(true);
+                        } else {
+                          videoRef.current.pause();
+                          setIsPlaying(false);
+                        }
+                      }}
+                      className="text-white/90 hover:text-white transition-colors"
                     >
-                      <MdOutlineFileDownload size={14} /> Download
+                      {videoRef.current?.paused === false ? <IoPause size={18} /> : <IoPlay size={18} />}
                     </button>
+                    
+                    <div className="flex items-center gap-2 group/volume">
+                      <button
+                        type="button"
+                        suppressHydrationWarning={true}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsMuted(!isMuted);
+                        }}
+                        className="text-white/90 hover:text-white transition-colors"
+                      >
+                        {isMuted ? <IoVolumeMute size={18} /> : <IoVolumeHigh size={18} />}
+                      </button>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={isMuted ? 0 : volume}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          setVolume(val);
+                          videoRef.current.volume = val;
+                          if (val > 0) setIsMuted(false);
+                        }}
+                        className="w-0 group-hover/volume:w-16 h-1 bg-white/20 rounded-full appearance-none cursor-pointer accent-white transition-all overflow-hidden"
+                      />
+                    </div>
+                    
+                    <span className="text-[10px] text-white/70 font-medium tabular-nums">
+                      {Math.floor(currentTime / 60)}:{Math.floor(currentTime % 60).toString().padStart(2, '0')} / {Math.floor(duration / 60)}:{Math.floor(duration % 60).toString().padStart(2, '0')}
+                    </span>
                   </div>
-                )}
+                </div>
               </div>
-              <video
-                key={data.resultUrl}
-                src={data.resultUrl}
-                autoPlay
-                loop
-                muted
-                playsInline
-                className="w-full max-h-full object-contain rounded-b-xl"
-                controls
-              />
+              {currentOutputList.length > 1 && (
+                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex gap-1 z-10">
+                  {currentOutputList.map((_, idx) => (
+                    <div
+                      key={idx}
+                      className={`w-1.5 h-1.5 rounded-full transition-all ${
+                        idx === currentVideoIndex ? "bg-white scale-125" : "bg-white/40"
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
-            <p className="text-gray-400 text-sm italic">Generation results appeared here...</p>
+            <div className="flex flex-col items-center justify-center text-zinc-400 gap-2">
+              <IoVideocamOutline size={32} />
+              <span className="text-[10px] italic">Result appeared here...</span>
+            </div>
           )}
-        </div>
-      )}
-      {data.selectedModel?.id !== "video-passthrough" && (
-        <div className="flex items-center gap-2 border-t border-gray-700 mt-auto p-2  md:hidden">
-          <button
-            type="button"
-            onClick={handleRunSingleNode}
-            disabled={data.isLoading}
-            className="text-xs flex items-center gap-2 cursor-pointer disabled:opacity-70 group disabled:cursor-not-allowed rounded text-black bg-white px-2 py-1 border border-gray-500 hover:text-white hover:bg-black"
-          >
-            {data.isLoading ? (
-              <><div className="w-3 h-3 rounded-full border border-t-transparent group-hover:border-t-transparent border-black group-hover:border-white animate-spin"></div>Generating...</>
-            ) : (
-              <><BsArrowUpCircleFill size={16} /> Generate</>
-            )}
-          </button>
         </div>
       )}
       <Handle 
@@ -438,12 +691,11 @@ const VideoGeneration = ({ id, data, selected }) => {
           height: 12,
           transition: 'all 0.2s ease-in-out',
         }} 
-        className={`!rounded-full !border-2 transition-all duration-200 !left-[-7px]
+        className={`!rounded-full !border-[3px] !left-[-8px] transition-all
           ${connectedInputs.videoInput 
-            ? '!bg-blue-500 !border-white shadow-[0_0_20px_rgba(59,130,246,1)]' 
-            : '!bg-black !border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.5)]'
+            ? '!bg-blue-600 !border-zinc-900 shadow-[0_0_15px_rgba(37,99,235,0.8)]' 
+            : '!bg-zinc-900 !border-blue-600/50 hover:!border-blue-600 shadow-sm'
           }
-          hover:!scale-125 hover:shadow-[0_0_20px_rgba(59,130,246,1)]
         `}
         data-type="blue"
       />
@@ -471,12 +723,11 @@ const VideoGeneration = ({ id, data, selected }) => {
           height: 12,
           transition: 'all 0.2s ease-in-out',
         }} 
-        className={`!rounded-full !border-2 transition-all duration-200 !left-[-7px]
+        className={`!rounded-full !border-[3px] !left-[-8px] transition-all
           ${connectedInputs.videoInput2 
-            ? '!bg-green-500 !border-white shadow-[0_0_20px_rgba(34,197,94,1)]' 
-            : '!bg-black !border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.5)]'
+            ? '!bg-emerald-600 !border-zinc-900 shadow-[0_0_15px_rgba(16,185,129,0.8)]' 
+            : '!bg-zinc-900 !border-emerald-600/50 hover:!border-emerald-600 shadow-sm'
           }
-          hover:!scale-125 hover:shadow-[0_0_20px_rgba(34,197,94,1)]
         `}
         data-type="green" 
       />
@@ -504,12 +755,11 @@ const VideoGeneration = ({ id, data, selected }) => {
           height: 12,
           transition: 'all 0.2s ease-in-out',
         }} 
-        className={`!rounded-full !border-2 transition-all duration-200 !left-[-7px]
+        className={`!rounded-full !border-[3px] !left-[-8px] transition-all
           ${connectedInputs.videoInput6 
-            ? '!bg-green-500 !border-white shadow-[0_0_20px_rgba(34,197,94,1)]' 
-            : '!bg-black !border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.5)]'
+            ? '!bg-emerald-600 !border-zinc-900 shadow-[0_0_15px_rgba(16,185,129,0.8)]' 
+            : '!bg-zinc-900 !border-emerald-600/50 hover:!border-emerald-600 shadow-sm'
           }
-          hover:!scale-125 hover:shadow-[0_0_20px_rgba(34,197,94,1)]
         `}
         data-type="green" 
       />
@@ -521,7 +771,7 @@ const VideoGeneration = ({ id, data, selected }) => {
               : "opacity-0 group-hover:opacity-100"
           }`}
         > 
-          Image 
+          Images
         </p>
       )}
       
@@ -537,12 +787,11 @@ const VideoGeneration = ({ id, data, selected }) => {
           height: 12,
           transition: 'all 0.2s ease-in-out',
         }} 
-        className={`!rounded-full !border-2 transition-all duration-200 !left-[-7px]
+        className={`!rounded-full !border-[3px] !left-[-8px] transition-all
           ${connectedInputs.videoInput3 
-            ? '!bg-green-500 !border-white shadow-[0_0_20px_rgba(34,197,94,1)]' 
-            : '!bg-black !border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.5)]'
+            ? '!bg-emerald-600 !border-zinc-900 shadow-[0_0_15px_rgba(16,185,129,0.8)]' 
+            : '!bg-zinc-900 !border-emerald-600/50 hover:!border-emerald-600 shadow-sm'
           }
-          hover:!scale-125 hover:shadow-[0_0_20px_rgba(34,197,94,1)]
         `}
         data-type="green"
       />
@@ -569,12 +818,11 @@ const VideoGeneration = ({ id, data, selected }) => {
           height: 12,
           transition: 'all 0.2s ease-in-out',
         }} 
-        className={`!rounded-full !border-2 transition-all duration-200 !left-[-7px]
+        className={`!rounded-full !border-[3px] !left-[-8px] transition-all
           ${connectedInputs.videoInput4 
-            ? '!bg-orange-500 !border-white shadow-[0_0_20px_rgba(255,140,0,1)]' 
-            : '!bg-black !border-orange-500 shadow-[0_0_20px_rgba(255,140,0,0.5)]'
+            ? '!bg-orange-600 !border-zinc-900 shadow-[0_0_15px_rgba(249,115,22,0.8)]' 
+            : '!bg-zinc-900 !border-orange-600/50 hover:!border-orange-600 shadow-sm'
           }
-          hover:!scale-125 hover:shadow-[0_0_20px_rgba(255,140,0,1)]
         `}
         data-type="orange"
       />
@@ -589,6 +837,38 @@ const VideoGeneration = ({ id, data, selected }) => {
           Video
         </p>
       )}
+
+      <Handle 
+        type="target" 
+        position={Position.Left} 
+        id="videoInput7"
+        style={{ 
+          top: 160,
+          opacity: hasVideosList ? 1 : 0,
+          pointerEvents: hasVideosList ? 'auto' : 'none',
+          width: 12,
+          height: 12,
+          transition: 'all 0.2s ease-in-out',
+        }} 
+        className={`!rounded-full !border-[3px] !left-[-8px] transition-all
+          ${connectedInputs.videoInput7 
+            ? '!bg-orange-600 !border-zinc-900 shadow-[0_0_15px_rgba(249,115,22,0.8)]' 
+            : '!bg-zinc-900 !border-orange-600/50 hover:!border-orange-600 shadow-sm'
+          }
+        `}
+        data-type="orange"
+      />
+      {hasVideosList && (
+        <p 
+          className={`absolute -left-10 top-[160px] text-xs text-orange-500 transition-opacity duration-200 ${
+            data.activeHandleColor === "orange"
+              ? "opacity-100" 
+              : "opacity-0 group-hover:opacity-100"
+          }`}
+        > 
+          Videos
+        </p>
+      )}
       <Handle 
         type="target" 
         position={Position.Left} 
@@ -601,12 +881,11 @@ const VideoGeneration = ({ id, data, selected }) => {
           height: 12,
           transition: 'all 0.2s ease-in-out',
         }} 
-        className={`!rounded-full !border-2 transition-all duration-200 !left-[-7px]
+        className={`!rounded-full !border-[3px] !left-[-8px] transition-all
           ${connectedInputs.videoInput5 
-            ? '!bg-yellow-500 !border-white shadow-[0_0_20px_rgba(255,215,0,1)]' 
-            : '!bg-black !border-yellow-500 shadow-[0_0_20px_rgba(255,215,0,0.5)]'
+            ? '!bg-yellow-500 !border-zinc-900 shadow-[0_0_15px_rgba(234,179,8,0.8)]' 
+            : '!bg-zinc-900 !border-yellow-500/50 hover:!border-yellow-500 shadow-sm'
           }
-          hover:!scale-125 hover:shadow-[0_0_20px_rgba(255,215,0,1)]
         `}
         data-type="yellow"
       />
@@ -631,12 +910,11 @@ const VideoGeneration = ({ id, data, selected }) => {
           height: 12,
           transition: 'all 0.2s ease-in-out',
         }} 
-        className={`!rounded-full !border-2 transition-all duration-200 !right-[-7px]
+        className={`!rounded-full !border-[3px] !right-[-8px] transition-all
           ${connectedOutputs.videoOutput 
-            ? '!bg-orange-500 !border-white shadow-[0_0_20px_rgba(255,140,0,1)]' 
-            : '!bg-black !border-orange-500 shadow-[0_0_20px_rgba(255,140,0,0.5)]'
+            ? '!bg-orange-600 !border-zinc-900 shadow-[0_0_15px_rgba(249,115,22,0.8)]' 
+            : '!bg-zinc-900 !border-orange-600/50 hover:!border-orange-600 shadow-sm'
           }
-          hover:!scale-125 hover:shadow-[0_0_20px_rgba(255,140,0,1)]
         `}
         data-type="orange"
       />

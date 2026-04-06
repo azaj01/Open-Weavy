@@ -3,7 +3,7 @@ import Image from "next/image";
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { FaAngleDown } from "react-icons/fa6";
 import { FiUpload } from "react-icons/fi";
-import { toast } from "react-toastify";
+import { toast } from "react-hot-toast";
 import AudioPlayer from "./AudioPlayer";
 import { IoCloudUploadOutline } from "react-icons/io5";
 
@@ -11,6 +11,7 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
   const [uploadProgress, setUploadProgress] = useState(0);
   const [dropDown, setDropDown] = useState(-1);
   const [uploading, setUploading] = useState(false);
+  const [isOpeningUp, setIsOpeningUp] = useState(false);
   const [dropdownStyle, setDropdownStyle] = useState({});
   const buttonRef = useRef(null);
 
@@ -20,9 +21,9 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
   const value = formValues[fieldName] ?? meta.default ?? "";
   const isRequired = data.required && data.required.includes(fieldName);
   const label = (
-    <label className="text-xs text-gray-400 text-start">
+    <label className="text-[10px] font-bold text-zinc-500 text-start px-1 mb-1">
       {meta.title || fieldName}
-      {isRequired && <span className="text-blue-500 text-[10px] ml-1">* required</span>}
+      {isRequired && <span className="text-blue-500 text-[9px] ml-1">* required</span>}
     </label>
   );
 
@@ -35,30 +36,7 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
       const rect = buttonRef.current.getBoundingClientRect();
       const windowHeight = window.innerHeight;
       const spaceBelow = windowHeight - rect.bottom;
-      const spaceAbove = rect.top;
-      const padding = 10;
-      
-      let style = {
-        position: 'fixed',
-        left: `${rect.left}px`,
-        width: `${rect.width}px`,
-        zIndex: 9999
-      };
-      let positionClass = '';
-
-      if (spaceBelow > 200 || spaceBelow > spaceAbove) {
-         style.top = `${rect.bottom + 5}px`;
-         style.bottom = 'auto';
-         style.maxHeight = `${spaceBelow - padding}px`;
-         positionClass = 'top';
-      } else {
-         style.top = 'auto';
-         style.bottom = `${windowHeight - rect.top + 5}px`;
-         style.maxHeight = `${spaceAbove - padding}px`;
-         positionClass = 'bottom';
-      }
-      
-      setDropdownStyle(style);
+      setIsOpeningUp(spaceBelow < 200);
     }
   }, [dropDown, idx]);
 
@@ -150,16 +128,17 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
         >
           <button
             type="button"
+            suppressHydrationWarning={true}
             ref={buttonRef} 
             onClick={() => handleDropdownToggle(idx + 1)}
-            className="flex items-center justify-between gap-1 text-xs text-center text-white w-full h-full cursor-pointer whitespace-nowrap px-2 py-[5px] border border-gray-600 focus:outline rounded"
+            className="flex items-center justify-between gap-1 text-xs text-center text-white w-full h-full cursor-pointer whitespace-nowrap px-3 py-1.5 bg-zinc-900/50 border border-white/10 hover:border-white/20 focus:outline-none rounded-lg transition-all"
           >
             <div className="flex items-center gap-2 truncate">
               <span className="truncate">{value}</span>
             </div>
             <FaAngleDown
               size={14}
-              className={`transition-all duration-300 ease-in-out ${
+              className={`transition-all duration-300 ease-in-out text-zinc-400 group-hover:text-white ${
                 dropDown === idx + 1 ? "rotate-180" : ""
               }`}
             />
@@ -167,27 +146,27 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
           <div
             tabIndex={-1}
             style={dropdownStyle}
-            className={`fixed border border-gray-500 p-1 rounded-md flex flex-col overflow-y-auto bg-[#1c1e21] shadow-xl ${
+            className={`absolute left-0 ${isOpeningUp ? "bottom-full mb-2" : "top-full mt-2"} border border-white/10 p-1 rounded-xl flex flex-col overflow-y-auto bg-zinc-900/95 backdrop-blur-3xl shadow-2xl transition-all duration-200 w-full z-50 max-h-60 custom-scrollbar-thin ${
               dropDown === idx + 1
-                ? "opacity-100 scale-100 visible"
-                : "opacity-0 scale-95 invisible"
+                ? "opacity-100 scale-100 visible translate-y-0"
+                : `opacity-0 scale-95 invisible ${isOpeningUp ? "translate-y-2" : "-translate-y-2"}`
             }`}
           >
             {meta.enum.map((option, i) => (
               <button
                 type="button"
+                suppressHydrationWarning={true}
                 key={i}
-                className={`flex items-center gap-2 p-1 text-xs cursor-pointer rounded hover:bg-[#33322f] ${
+                className={`flex items-center gap-2 px-3 py-2 text-xs cursor-pointer rounded-lg transition-all ${
                   formValues[fieldName] === option
-                    ? "text-white"
-                    : "text-gray-400 hover:text-white"
-                }
-                    `}
+                    ? "bg-blue-500/10 text-blue-400"
+                    : "text-zinc-400 hover:bg-white/5 hover:text-white"
+                }`}
                 onClick={() => {handleChange(fieldName, option); setDropDown(-1)}}
               >
                 <span className="truncate">{option}</span>
                 {formValues[fieldName] === option && (
-                  <span className="ml-auto text-white font-bold">✓</span>
+                  <span className="ml-auto text-blue-400 font-bold">✓</span>
                 )}
               </button>
             ))}
@@ -207,7 +186,7 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
             value={formValues[fieldName] || ''} 
             readOnly
             // onChange={(e) => handleChange(fieldName, e.target.value)} 
-            className="bg-[#1f2125] text-white text-xs py-1 px-2 rounded border border-gray-600 w-full" 
+            className="bg-zinc-900/50 text-white text-xs py-2 px-3 rounded-lg border border-white/10 transition-all hover:border-white/20 w-full outline-none focus:border-blue-500/50" 
             placeholder="Add a file or provide an URL" 
           />
           {/* <input 
@@ -244,16 +223,17 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
         {formValues[fieldName] && (
           <div className="flex items-center gap-2 relative group overflow-hidden self-start w-full">
             {meta.field === 'image' ? (
-              <img src={formValues[fieldName]} alt="Preview" className="w-24 h-24 object-cover border border-gray-300 rounded" width={0} height={0} />
+              <img src={formValues[fieldName]} alt="Preview" className="w-24 h-24 object-cover border border-white/10 rounded-xl shadow-lg" width={0} height={0} />
             ) : meta.field === 'video' ? (
-              <video src={formValues[fieldName]} className="w-24 h-24 object-cover border border-gray-300 rounded" />
+              <video src={formValues[fieldName]} className="w-24 h-24 object-cover border border-white/10 rounded-xl shadow-lg" />
             ) : meta.field === 'audio' && (
-              <div className="flex flex-col w-full h-16 border border-gray-300 rounded-md overflow-hidden">
+              <div className="flex flex-col w-full h-16 border border-white/10 rounded-xl overflow-hidden shadow-lg">
                 <AudioPlayer src={formValues[fieldName]} />
               </div>
             )}
             <button 
               type="button" 
+              suppressHydrationWarning={true}
               onClick={() => handleChange(fieldName, '')} 
               className="text-gray-500 group-hover:text-red-600 group-hover:font-black cursor-pointer absolute top-2 left-2"
             >
@@ -269,7 +249,10 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
     const imageList = formValues[fieldName] || [];
     return (
       <div key={fieldName} className="flex flex-col gap-1">
-        {label}
+        <div className="flex items-center justify-between">
+          {label}
+          <span className="text-[10px] text-gray-500">{imageList.length}/{meta.maxItems}</span>
+        </div>
         <div className="grid grid-cols-3 gap-2">
           {imageList.map((url, idx) => (
             <div key={idx} className="flex items-center gap-2 relative group overflow-hidden">
@@ -288,6 +271,7 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
               <div className="inset-0 group-hover:bg-gray-600/40 absolute rounded">
                 <button 
                   type="button" 
+                  suppressHydrationWarning={true}
                   onClick={() => {
                     const updated = [...imageList];
                     updated.splice(idx, 1);
@@ -340,7 +324,7 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
             step={meta.step}
             value={formValues[fieldName] ?? meta.default ?? 0}
             onChange={(e) => handleChange(fieldName, parseFloat(e.target.value))}
-            className="h-1 rounded-full cursor-pointer accent-blue-600 active:accent-blue-600 outline-none w-full"
+            className="h-1.5 rounded-full cursor-pointer accent-blue-600 outline-none w-full bg-zinc-800"
           />
           <input 
             type="number" 
@@ -355,7 +339,7 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
             //   const clamped = Math.max(meta.minValue, Math.min(val, meta.maxValue));
             //   handleChange(fieldName, clamped);
             // }} 
-            className="w-12 h-7 text-center text-white rounded border border-gray-300 text-xs bg-transparent" 
+            className="w-12 h-8 text-center text-white rounded-lg border border-white/10 text-[10px] font-bold bg-zinc-900/50 outline-none focus:border-blue-500/50 transition-all" 
           />
         </div>
       </div>
@@ -391,7 +375,7 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
               num = Math.max(min, Math.min(num, max));
               handleChange(fieldName, num);
             }} 
-            className="w-full rounded border border-gray-600 px-2 py-1 text-white text-xs bg-transparent" 
+            className="w-full rounded-lg border border-white/10 px-3 py-2 text-white text-xs bg-zinc-900/50 hover:border-white/20 focus:border-blue-500/50 outline-none transition-all" 
           />
         </div>
       </div>
@@ -425,7 +409,7 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
           value={value}
           placeholder={meta.placeholder || ""}
           onChange={(e) => handleChange(fieldName, e.target.value)}
-          className="bg-[#1f2125] text-white text-xs py-1 px-2 rounded border border-gray-600 w-full"
+          className="bg-zinc-900/50 text-white text-xs py-2 px-3 rounded-lg border border-white/10 hover:border-white/20 transition-all w-full outline-none focus:border-blue-500/50"
         />
       </div>
     );
@@ -444,8 +428,8 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
               checked={!!formValues[fieldName]}
               onChange={(e) => handleChange(fieldName, e.target.checked)}
             />
-            <span className={`flex items-center h-5 w-9 rounded-full p-1 duration-200 ${!!formValues[fieldName] ? "bg-blue-500" : "bg-[#1c1e21] border dark:border-gray-500"}`}>
-              <span className={`h-3 w-3 rounded-full bg-white duration-200 ${!!formValues[fieldName] && "translate-x-[14px]"}`}></span>
+            <span className={`flex items-center h-[20px] w-[36px] rounded-full p-1 duration-200 transition-all ${!!formValues[fieldName] ? "bg-blue-600 shadow-lg shadow-blue-900/40" : "bg-zinc-800 border border-white/10"}`}>
+              <span className={`h-[12px] w-[12px] rounded-full bg-white duration-200 shadow-sm ${!!formValues[fieldName] && "translate-x-[16px]"}`}></span>
             </span>
           </label>
           <p className="text-xs text-white">{meta.description}</p>
@@ -463,7 +447,7 @@ const RenderField = ({ fieldName, meta, idx, formValues, setFormValues, handleCh
           readOnly
           // onChange={(e) => handleChange(fieldName, e.target.value)}
           placeholder={meta.description || ""}
-          className="bg-[#1f2125] text-white text-xs py-1 px-2 rounded border border-gray-600 w-full"
+          className="bg-zinc-900/50 text-white text-xs py-2 px-3 rounded-lg border border-white/10 hover:border-white/20 transition-all w-full outline-none focus:border-blue-500/50"
           rows={6}
         />
       </div>

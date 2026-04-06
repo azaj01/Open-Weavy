@@ -37,8 +37,11 @@ async def proxy_request_helper(method: str, url: str, payload: Optional[dict] = 
                 raise HTTPException(status_code=405, detail=f"Method {method} not supported in proxy")
 
         except httpx.RequestError as e:
-            logger.error(f"Request error: {e}")
-            raise HTTPException(status_code=500, detail=f"Error contacting remote server: {e}")
+            logger.error(f"HTTPExt Request Error for {method} {url}: {e}")
+            raise HTTPException(status_code=500, detail=f"Error contacting remote server: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error in proxy_request_helper for {method} {url}: {e}")
+            raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
     try:
         if response.content:
@@ -51,8 +54,9 @@ async def proxy_request_helper(method: str, url: str, payload: Optional[dict] = 
     if response.status_code == 200:
         return resp_json
     else:
-        error = resp_json.get("detail", "Something went wrong")
-        raise HTTPException(status_code=response.status_code, detail=error)
+        error_detail = resp_json.get("detail", "Something went wrong")
+        logger.warning(f"Remote server returned {response.status_code}: {error_detail}")
+        raise HTTPException(status_code=response.status_code, detail=error_detail)
 
 async def create_or_update_workflow(payload: dict):
     url = "https://api.muapi.ai/workflow/create"
@@ -126,4 +130,24 @@ async def architect_workflow_helper(payload: dict):
 
 async def poll_architect_result_helper(id: str):
     url = f"https://api.muapi.ai/workflow/poll-architect/{id}/result"
+    return await proxy_request_helper("GET", url)
+
+async def delete_node_run_by_id_helper(node_run_id: str):
+    url = f"https://api.muapi.ai/workflow/node-run/{node_run_id}"
+    return await proxy_request_helper("DELETE", url)
+
+async def update_workflow_category_helper(workflow_id: str, payload: dict):
+    url = f"https://api.muapi.ai/workflow/update-category/{workflow_id}"
+    return await proxy_request_helper("POST", url, payload)
+
+async def get_workflow_api_inputs_helper(workflow_id: str):
+    url = f"https://api.muapi.ai/workflow/{workflow_id}/api-inputs"
+    return await proxy_request_helper("GET", url)
+
+async def execute_workflow_via_api_helper(workflow_id: str, payload: dict):
+    url = f"https://api.muapi.ai/workflow/{workflow_id}/api-execute"
+    return await proxy_request_helper("POST", url, payload)
+
+async def get_workflow_api_outputs_helper(run_id: str):
+    url = f"https://api.muapi.ai/workflow/run/{run_id}/api-outputs"
     return await proxy_request_helper("GET", url)

@@ -1,14 +1,16 @@
 'use client';
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Handle, Position, useReactFlow, useStore, useUpdateNodeInternals } from "reactflow";
-import { BsArrowUpCircleFill } from "react-icons/bs";
+import { FaAngleLeft, FaAngleRight } from "react-icons/fa6";
 import { apiNodeModels } from "./utility";
 import { getRunId, getWorkflowId } from "./WorkflowStore";
 import axios from "axios";
-import { toast } from "react-toastify";
-import { IoClose } from "react-icons/io5";
+import { toast } from "react-hot-toast";
+import { IoClose, IoTrashOutline } from "react-icons/io5";
 import { RiInputMethodLine } from "react-icons/ri";
+import NodeSendButton from "./NodeSendButton";
+import NodeOptionsMenu from "./NodeOptionsMenu";
 
 const outputHandles = [
   "apiOutput",
@@ -23,14 +25,19 @@ const ApiNode = ({ id, data, selected }) => {
   const exposedHandles = data.exposedHandles || [];
   const [dropDown, setDropDown] = useState(0);
   const [loading, setLoading] = useState(0);
+  const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1);
+  const [currentOutputIndex, setCurrentOutputIndex] = useState(0);
+  const outputHistory = data.outputHistory || [];
+  const prevHistoryLengthRef = useRef(outputHistory.length);
   const workflowId = getWorkflowId();
-  const runId = getRunId();
+  const runId = data.runId ?? getRunId();
   const nodeSchemas = data.nodeSchemas || {};
   const { setNodes, setEdges } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state) => state.edges);
-  const modelSchema = nodeSchemas?.categories?.api?.models[selectedModel.id];
-
+  const modelSchema = nodeSchemas?.categories?.api?.models[selectedModel.id];  
+  const textareaRef = useRef(null);
+  
   const initializeFormData = (schemaProperties) => {
     const initialData = {};
     const fieldEntries = Object.entries(schemaProperties || {});
@@ -83,7 +90,7 @@ const ApiNode = ({ id, data, selected }) => {
     // Merge from both prop data and current local state
     const currentValues = { ...(data.formValues || {}), ...formValues };
     const filteredFormValues = Object.entries(currentValues).reduce((acc, [key, val]) => {
-      if (validKeys.includes(key)) acc[key] = val;
+      if (validKeys?.includes(key)) acc[key] = val;
       return acc;
     }, {});
 
@@ -92,7 +99,7 @@ const ApiNode = ({ id, data, selected }) => {
         const meta = properties[key];
         if (meta?.enum) {
           const optionValues = meta.enum.map(opt => typeof opt === 'object' ? opt.value : opt);
-          if (!optionValues.includes(val)) {
+          if (!optionValues?.includes(val)) {
             const firstOption = meta.enum[0];
             acc[key] = meta.default ?? (typeof firstOption === 'object' ? firstOption.value : firstOption) ?? "";
           } else {
@@ -105,6 +112,13 @@ const ApiNode = ({ id, data, selected }) => {
       },
       {}
     );
+
+    // Preserve UI-only flags that are not part of the model schema
+    const UI_KEYS = ["make_output", "make_input"];
+    UI_KEYS.forEach((k) => {
+      if (data.formValues?.[k] !== undefined) merged[k] = data.formValues[k];
+    });
+
     setFormValues(merged);
   };
   
@@ -253,7 +267,19 @@ const ApiNode = ({ id, data, selected }) => {
     if (data.selectedModel) {
       setSelectedModel(data.selectedModel);
     }
-  }, [data.selectedModel, data.triggerRun, data.triggerInputs]);
+
+    if (data.outputHistory && data.outputHistory.length > 0) {
+      if (currentHistoryIndex === -1) {
+        setCurrentHistoryIndex(data.outputHistory.length - 1);
+        setCurrentOutputIndex(0);
+      } else if (data.outputHistory.length > prevHistoryLengthRef.current) {
+        // If history grew, move to the latest
+        setCurrentHistoryIndex(data.outputHistory.length - 1);
+        setCurrentOutputIndex(0);
+      }
+    }
+    prevHistoryLengthRef.current = data.outputHistory?.length || 0;
+  }, [data.isLoading, data.selectedModel, data.triggerRun, data.triggerInputs, data.outputHistory]);
   
   useEffect(() => {
     updateNodeInternals(id);
@@ -266,7 +292,7 @@ const ApiNode = ({ id, data, selected }) => {
 
   const handleToggleHandle = (field) => {
     const current = data.exposedHandles || [];
-    const isRemoving = current.includes(field);
+    const isRemoving = current?.includes(field);
 
     if (isRemoving) {
       setEdges((eds) => eds.filter(e => !(e.target === id && e.targetHandle === field)));
@@ -304,14 +330,32 @@ const ApiNode = ({ id, data, selected }) => {
     const interval = setInterval(() => {
       axios.get(`/api/workflow/run/${run_id}/status`)
       .then((response) => {
-        const nodeData = response.data.nodes?.[id];
-        if (!nodeData || nodeData.length === 0) return;
+        const nodesInRes = response.data.nodes || {};
+        const nodeData = nodesInRes[id] || Object.entries(nodesInRes).find(([key]) => 
+          key.toLowerCase().replace(/\s+/g, '') === id.toLowerCase().replace(/\s+/g, '')
+        )?.[1];
+        
+        console.log(`[ApiNode ${id}] Polling status. Node data found:`, !!nodeData);
+        if (!nodeData || nodeData.length === 0) {
+          console.log(`[ApiNode ${id}] No data for this ID. Available keys:`, Object.keys(nodesInRes));
+          return;
+        }
         const latest = nodeData[nodeData.length - 1];
-        if (latest.status === "succeeded") {
+        console.log(`[ApiNode ${id}] Latest status:`, latest.status);
+        if (latest.status === "succeeded" || latest.status === "completed") {
           const output = latest.result.outputs;
-          const val = output[0].value || "";
-          data?.onDataChange?.(id, { outputs: output, resultUrl: val, isLoading: false, errorMsg: null });
+          const val = output[0]?.value || "";
+          
+          const currentHistory = data.outputHistory || [];
+          const result = latest.result;
+          const isAlreadyInHistory = currentHistory.some(h => h.result?.id === result.id);
+          const newHistory = isAlreadyInHistory 
+            ? currentHistory.map(h => h.result?.id === result.id ? latest : h)
+            : [...currentHistory, latest];
 
+          data?.onDataChange?.(id, { outputs: output, resultUrl: val, isLoading: false, errorMsg: null, outputHistory: newHistory });
+          setCurrentHistoryIndex(newHistory.length - 1);
+          setCurrentOutputIndex(0);
           clearInterval(interval);
         }
 
@@ -323,7 +367,8 @@ const ApiNode = ({ id, data, selected }) => {
             errorMsg = outputs[0].value.error; 
           }
           toast.error(`Node ${id} failed`);
-          data.onDataChange(id, { isLoading: false, errorMsg });
+          const currentHistory = data.outputHistory || [];
+          data.onDataChange(id, { isLoading: false, errorMsg, outputHistory: currentHistory }); 
           clearInterval(interval);
         }
       })
@@ -331,7 +376,7 @@ const ApiNode = ({ id, data, selected }) => {
         console.log(error);
         clearInterval(interval);
         data.onDataChange(id, { isLoading: false });
-        toast.error(`Failed to get workflow status Image ${id.replace(/^\D+/g, "")}`);
+        toast.error(`Failed to get workflow status Api ${id.replace(/^\D+/g, "")}`);
       });
     }, 3000);
   };
@@ -393,7 +438,7 @@ const ApiNode = ({ id, data, selected }) => {
     if (window.confirm(`Are you sure you want to delete this ${id} node?`)) {
       setNodes((nds) => nds.filter((n) => n.id !== id));
       setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
-      toast.info(`Deleted node ${id}`);
+      toast.success(`Deleted node ${id}`);
     };
   };
 
@@ -434,92 +479,250 @@ const ApiNode = ({ id, data, selected }) => {
 
     setConnectedOutputs(connectedOutputs);
     setConnectedInputs(connectedInputs);
-  }, [edges, id, taskData]);  
+  }, [edges, id, taskData]);
+
+  const handlePrev = (e) => {
+    e.stopPropagation();
+    if (currentHistoryIndex > 0) {
+      const newIndex = currentHistoryIndex - 1;
+      setCurrentHistoryIndex(newIndex);
+
+      const viewing = outputHistory[newIndex]?.result?.outputs?.[0]?.value;
+      setNodes((nds) => nds.map((n) => {
+        if (n.id === id) {
+          return { ...n, data: { ...n.data, viewingOutput: viewing } };
+        }
+        return n;
+      }));
+    }
+  };
+
+  const handleNext = (e) => {
+    e.stopPropagation();
+    if (currentHistoryIndex < outputHistory.length - 1) {
+      const newIndex = currentHistoryIndex + 1;
+      setCurrentHistoryIndex(newIndex);
+
+      const viewing = outputHistory[newIndex]?.result?.outputs?.[0]?.value;
+      setNodes((nds) => nds.map((n) => {
+        if (n.id === id) {
+          return { ...n, data: { ...n.data, viewingOutput: viewing } };
+        }
+        return n;
+      }));
+    }
+  };
+
+  const handleDeleteHistory = async (e) => {
+    e.stopPropagation();
+    const currentHistory = outputHistory[currentHistoryIndex];
+    if (!currentHistory || !currentHistory.node_run_id) return;
+
+    if (window.confirm("Are you sure you want to delete this history entry?")) {
+      try {
+        await axios.delete(`/api/workflow/node-run/${currentHistory.node_run_id}`);
+        const newHistory = outputHistory.filter((_, i) => i !== currentHistoryIndex);
+        
+        data?.onDataChange?.(id, { 
+          outputHistory: newHistory,
+          ...(newHistory.length === 0 ? { outputs: [], resultUrl: null } : {})
+        });
+
+        if (newHistory.length === 0) {
+          setCurrentHistoryIndex(-1);
+        } else {
+          setCurrentHistoryIndex(Math.max(0, currentHistoryIndex - 1));
+        }
+        toast.success("History entry deleted");
+      } catch (error) {
+        toast.error(error.response?.data?.detail || "Failed to delete history entry");
+        console.error(error);
+      }
+    }
+  };
+
+  const currentOutputList = currentHistoryIndex !== -1 && outputHistory[currentHistoryIndex]
+    ? outputHistory[currentHistoryIndex]?.result?.outputs || []
+    : (data.outputs || []);
+
+  const currentOutput = currentOutputList.length > 0
+    ? currentOutputList[currentOutputIndex]?.value || currentOutputList[0]?.value || data.resultUrl
+    : data.resultUrl;
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "0px";
+      const scrollHeight = textarea.scrollHeight;
+      textarea.style.height = `${Math.max(scrollHeight, 60)}px`;
+    }
+  }, [currentOutput, currentHistoryIndex]);
 
   const hardcodedKeys = Object.keys(selectedModel.input_params?.properties || {});
-  const filteredTaskDataEntries = Object.entries(taskData).filter(([key]) => !hardcodedKeys.includes(key));
+  const filteredTaskDataEntries = Object.entries(taskData).filter(([key]) => !hardcodedKeys?.includes(key));
   const minHeight = Math.max(208, 150 + filteredTaskDataEntries.length * 50);
 
   return (
     <div 
       style={{ minHeight }} 
-      className={`nowheel group flex flex-col w-80 bg-[#0c0d0f] rounded-2xl border-2 relative transition-all duration-500 ease-in-out ${selected ? "border-white": "border-gray-500"}`}
+      className={`
+        nowheel group flex flex-col w-80 
+        rounded-2xl border-2 relative transition-all duration-300 ease-in-out 
+        ${selected 
+          ? "border-blue-600 shadow-[0_0_25px_rgba(37,99,235,0.3)] scale-[1.02] ring-1 ring-blue-500/20" 
+          : "border-zinc-800 hover:border-zinc-700 shadow-lg"} 
+        bg-[#0c0d0f]/95 backdrop-blur-sm
+      `}
     >
-      <h3 className="absolute -top-5 left-0 text-gray-300 text-xs">Api {id.replace(/^\D+/g, "")}</h3>
-      <div className="flex items-center justify-between bg-[#151618] rounded-t-2xl border-b border-gray-800 p-2">
-        <div className="flex items-center gap-3 w-full">
-          <button
-            type="button"
-            className={`p-1 rounded cursor-pointer text-white bg-transparent flex`}
-          >
-            <RiInputMethodLine size={18} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setDropDown(prev => prev === 1 ? 0: 1)}
-            className="flex items-center gap-1 text-white text-xs text-center cursor-pointer truncate"
-          >
-            {selectedModel.name}
-          </button>
-          <button
-            type="button"
-            onClick={handleDeleteNode}
-            className="font-bold p-1 hover:bg-[#494c52] rounded cursor-pointer text-gray-400 hover:text-red-500 ml-auto"
-          >
-            <IoClose size={18} />
-          </button>
+      <h3 className="absolute -top-5 left-0 text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
+        Api {id.replace(/^\D+/g, "")}
+      </h3>
+      <div className="flex flex-col">
+        <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 p-3">
+          <div className="flex items-center gap-2.5">
+            <div className={`p-1.5 rounded-lg ${selected ? "bg-blue-600 text-white" : "bg-zinc-800 text-zinc-400"} transition-colors`}>
+              <RiInputMethodLine size={14} />
+            </div>
+            <h3 className="text-xs font-bold text-zinc-100">
+              {selectedModel.name}
+            </h3>
+          </div>
+          {outputHistory.length > 0 && (
+            <div className="absolute -top-10 right-0 bg-[#0c0d0f]/95 flex items-center gap-1 p-1 border border-white/10 rounded-full ml-auto">
+              <button 
+                type="button"
+                suppressHydrationWarning={true}
+                onClick={handlePrev}
+                disabled={currentHistoryIndex <= 0}
+                className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-white/10 text-white/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                title="Previous"
+              >
+                <FaAngleLeft size={10} />
+              </button>
+              <div className="flex items-center gap-1.5 px-0.5">
+                <span className="text-[9px] font-medium text-white/90 tabular-nums tracking-wide">
+                  {currentHistoryIndex + 1}/{outputHistory.length}
+                </span>
+                <div className="w-[1px] h-2.5 bg-white/10" />
+                <button 
+                  type="button"
+                  suppressHydrationWarning={true}
+                  onClick={handleDeleteHistory}
+                  className="p-1 hover:bg-red-500/10 rounded-full text-zinc-400 hover:text-red-500 transition-colors flex items-center justify-center"
+                  title="Delete history"
+                >
+                  <IoTrashOutline size={10} />
+                </button>
+                <div className="w-[1px] h-2.5 bg-white/10" />
+                <NodeSendButton 
+                  id={id} 
+                  data={data} 
+                  outputHistory={outputHistory} 
+                  currentHistoryIndex={currentHistoryIndex} 
+                  currentOutputIndex={currentOutputIndex}
+                />
+              </div>
+              <button 
+                type="button"
+                suppressHydrationWarning={true}
+                onClick={handleNext}
+                disabled={currentHistoryIndex >= outputHistory.length - 1}
+                className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-white/10 text-white/70 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                title="Next"
+              >
+                <FaAngleRight size={10} />
+              </button>
+            </div>
+          )}
+          <NodeOptionsMenu 
+            nodeId={id}
+            onDuplicate={data.duplicateNode}
+            onDelete={handleDeleteNode}
+            downloadUrl={currentOutput}
+          />
         </div>
       </div>
       <div className="flex items-center flex-grow justify-center w-full h-full rounded transition-all duration-500">
         {data.isLoading ? (
-          <div className="flex items-center justify-center w-full h-full overflow-hidden aspect-[1/1]">
-            <div className="flex items-center justify-center text-xs skeleton w-full h-full">Generating...</div>
+          <div className="flex items-center justify-center w-full h-full overflow-hidden aspect-[1/1] bg-white/5 animate-pulse rounded-b-2xl">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-[10px] font-bold text-blue-500 tracking-wider uppercase">Processing...</span>
+            </div>
           </div>
         ) : data.errorMsg ? (
-          <div className="text-red-300 text-sm p-2">
-            {data.errorMsg || "Failed Generation"}
+          <div className="text-red-400 text-xs font-medium p-3 bg-red-500/10 rounded-xl border border-red-500/20 m-3 w-full">
+            {data.errorMsg || "API failure"}
           </div>
-        ) : data.resultUrl && !data.isLoading ? (
-          (() => {
-            const output = data.outputs?.[0];
-            const isVideo = output?.type === 'video_url' || (data.resultUrl && (data.resultUrl.toLowerCase().endsWith('.mp4') || data.resultUrl.toLowerCase().endsWith('.webm') || data.resultUrl.toLowerCase().endsWith('.mov')));
-        
-            if (isVideo) {
-              return (
+        ) : currentOutput && !data.isLoading ? (
+          <div className="w-full h-full relative group/api">
+            <div className="flex-1 w-full h-full flex flex-col items-center justify-center">
+              {currentOutputList[currentOutputIndex]?.type === 'video_url' ? (
                 <video
-                  src={data.resultUrl}
+                  src={currentOutput}
                   controls
                   className="w-full h-full rounded-md object-contain"
                 />
-              );
-            }
-            return (
-              <img
-                src={data.resultUrl}
-                alt="Generated"
-                className="w-full h-full rounded-md object-contain"
-              />
-            );
-          })()
+              ) : (currentOutputList[currentOutputIndex]?.type === 'image_url' || currentOutputList[currentOutputIndex]?.type === 'image') ? (
+                <img
+                  src={currentOutput}
+                  alt="Generated"
+                  className="w-full h-full rounded-md object-contain"
+                />
+              ) : currentOutputList[currentOutputIndex]?.type === 'audio_url' ? (
+                <div className="w-full px-4">
+                  <p className="text-[10px] text-white/40 mb-2 truncate">{currentOutput}</p>
+                  <audio src={currentOutput} controls className="w-full" />
+                </div>
+              ) : (
+                <div className="flex-1 w-full p-2">
+                  <textarea
+                    ref={textareaRef}
+                    readOnly
+                    value={typeof currentOutput === 'object' ? JSON.stringify(currentOutput, null, 2) : String(currentOutput)}
+                    className="w-full text-[10px] leading-relaxed outline-none bg-[#1c1e21] border border-gray-700 rounded-lg p-2 resize-none overflow-hidden text-white font-medium shadow-inner"
+                    style={{ minHeight: "60px" }}
+                  />
+                </div>
+              )}
+            </div>
+            {currentOutputList.length > 1 && (
+              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 backdrop-blur-sm px-2 py-0.5 rounded-full border border-white/10 opacity-0 group-hover/api:opacity-100 transition-opacity">
+                <button
+                  type="button"
+                  suppressHydrationWarning={true}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCurrentOutputIndex((prev) => (prev > 0 ? prev - 1 : currentOutputList.length - 1));
+                  }}
+                  className="text-white hover:text-blue-400 p-0.5"
+                >
+                  <FaAngleLeft size={12} />
+                </button>
+                <span className="text-[10px] text-white/80 tabular-nums">
+                  {currentOutputIndex + 1}/{currentOutputList.length}
+                </span>
+                <button
+                  type="button"
+                  suppressHydrationWarning={true}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCurrentOutputIndex((prev) => (prev < currentOutputList.length - 1 ? prev + 1 : 0));
+                  }}
+                  className="text-white hover:text-blue-400 p-0.5"
+                >
+                  <FaAngleRight size={12} />
+                </button>
+              </div>
+            )}
+          </div>
         ) : (
-          <p className="text-gray-400 text-sm italic">Generation results appeared here...</p>
+          <div className="flex flex-col items-center justify-center text-zinc-400 gap-2">
+            <RiInputMethodLine size={32} />
+            <span className="text-[10px] italic">Result appeared here...</span>
+          </div>
         )}
-      </div>
-      <div className="flex items-center gap-2 border-t border-gray-700 mt-auto p-2 md:hidden">
-        <button
-          type="button"
-          onClick={handleRunSingleNode}
-          disabled={data.isLoading}
-          className="text-xs flex items-center gap-2 cursor-pointer disabled:opacity-70 group disabled:cursor-not-allowed rounded text-black bg-white px-2 py-1 border border-gray-500 hover:text-white hover:bg-black"
-        >
-          {data.isLoading ? (
-            <><div className="w-3 h-3 rounded-full border border-t-transparent group-hover:border-t-transparent border-black group-hover:border-white animate-spin"></div>Generating...</>
-          ) : (
-            <><BsArrowUpCircleFill size={16} /> Generate</>
-          )}
-        </button>
-      </div>
-      
+      </div>    
       {(() => {
         let outputColor = "green";
         let activeClass = "!bg-green-500 !border-white shadow-[0_0_20px_rgba(34,197,94,1)]";
@@ -532,22 +735,28 @@ const ApiNode = ({ id, data, selected }) => {
 
         if (output?.type === 'text' || modelType === 'chat') {
           outputColor = "blue";
-          activeClass = "!bg-blue-500 !border-white shadow-[0_0_20px_rgba(59,130,246,1)]";
-          inactiveClass = "!bg-black !border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.5)]";
+          activeClass = "!bg-blue-600 !border-zinc-900 shadow-[0_0_15px_rgba(37,99,235,0.8)]";
+          inactiveClass = "!bg-zinc-900 !border-blue-600/50 hover:!border-blue-600 shadow-sm";
           labelText = "Text";
           labelColor = "text-blue-500";
         } else if (output?.type === 'video_url' || modelType === 'video') {
           outputColor = "orange";
-          activeClass = "!bg-orange-500 !border-white shadow-[0_0_20px_rgba(249,115,22,1)]";
-          inactiveClass = "!bg-black !border-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.5)]";
+          activeClass = "!bg-orange-600 !border-zinc-900 shadow-[0_0_15px_rgba(249,115,22,0.8)]";
+          inactiveClass = "!bg-zinc-900 !border-orange-600/50 hover:!border-orange-600 shadow-sm";
           labelText = "Video";
           labelColor = "text-orange-500";
         } else if (output?.type === 'audio_url' || modelType === 'audio') {
           outputColor = "yellow";
-          activeClass = "!bg-yellow-500 !border-white shadow-[0_0_20px_rgba(234,179,8,1)]";
-          inactiveClass = "!bg-black !border-yellow-500 shadow-[0_0_20px_rgba(234,179,8,0.5)]";
+          activeClass = "!bg-yellow-500 !border-zinc-900 shadow-[0_0_15px_rgba(234,179,8,0.8)]";
+          inactiveClass = "!bg-zinc-900 !border-yellow-500/50 hover:!border-yellow-500 shadow-sm";
           labelText = "Audio";
           labelColor = "text-yellow-500";
+        } else {
+          outputColor = "green";
+          activeClass = "!bg-emerald-600 !border-zinc-900 shadow-[0_0_15px_rgba(16,185,129,0.8)]";
+          inactiveClass = "!bg-zinc-900 !border-emerald-600/50 hover:!border-emerald-600 shadow-sm";
+          labelText = "Image";
+          labelColor = "text-emerald-500";
         }
 
         return (
@@ -567,7 +776,6 @@ const ApiNode = ({ id, data, selected }) => {
                 ? activeClass
                 : inactiveClass
               }
-              hover:!scale-125
             `}
             data-type={outputColor}
           />
@@ -585,7 +793,7 @@ const ApiNode = ({ id, data, selected }) => {
       })()}
 
       {filteredTaskDataEntries.map(([key, meta], idx) => {
-        const isExposed = connectedInputs[key] || exposedHandles.includes(key);
+        const isExposed = connectedInputs[key] || exposedHandles?.includes(key);
         return (
           <React.Fragment key={key}>
             <Handle 
@@ -600,12 +808,11 @@ const ApiNode = ({ id, data, selected }) => {
                 opacity: isExposed ? 1 : 0,
                 pointerEvents: isExposed ? 'all' : 'none',
               }} 
-              className={`!rounded-full !border-2 transition-all duration-200 !left-[-7px]
+              className={`!rounded-full !border-[3px] !left-[-8px] transition-all
                 ${connectedInputs[key] 
-                  ? '!bg-white !border-black shadow-[0_0_20px_rgba(255,255,255,1)]' 
-                  : '!bg-black !border-white shadow-[0_0_20px_rgba(255,255,255,0.5)]'
+                  ? '!bg-white !border-zinc-900 shadow-[0_0_15px_rgba(255,255,255,0.8)]' 
+                  : '!bg-zinc-900 !border-white hover:!border-zinc-500 shadow-sm'
                 }
-                hover:!scale-125 hover:shadow-[0_0_20px_rgba(255,255,255,1)]
               `}
               data-type="white"
             />

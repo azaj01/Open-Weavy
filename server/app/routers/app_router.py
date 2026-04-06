@@ -10,5 +10,5 @@ async def get_file_upload_url(request: Request):
         params = dict(request.query_params)
         return await get_file_upload_url_helper(params)
     except Exception as e:
-         if isinstance(e, HTTPException): raise e
-         raise HTTPException(status_code=400, detail=str(e))
+        if isinstance(e, HTTPException): raise e
+        raise HTTPException(status_code=400, detail=str(e))

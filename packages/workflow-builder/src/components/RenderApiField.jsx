@@ -3,7 +3,7 @@ import Image from "next/image";
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { FaAngleDown } from "react-icons/fa6";
 import { FiUpload } from "react-icons/fi";
-import { toast } from "react-toastify";
+import { toast } from "react-hot-toast";
 import AudioPlayer from "./AudioPlayer";
 import { IoCloudUploadOutline } from "react-icons/io5";
 import { Handle, Position } from "reactflow";
@@ -13,6 +13,7 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
   const [uploadProgress, setUploadProgress] = useState(0);
   const [dropDown, setDropDown] = useState(-1);
   const [uploading, setUploading] = useState(false);
+  const [isOpeningUp, setIsOpeningUp] = useState(false);
   const [dropdownStyle, setDropdownStyle] = useState({});
   const containerRef = useRef(null);
 
@@ -30,15 +31,16 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
   const isRequired = meta.required || false;
   const label = (
     <div className="flex items-center justify-between w-full group/label">
-      <label htmlFor={fieldName} className="text-xs text-gray-400 text-start flex-grow cursor-pointer">
+      <label htmlFor={fieldName} className="text-xs font-bold text-zinc-500 text-start flex-grow cursor-pointer">
         {fieldName}
-        {isRequired && <span className="text-blue-500 text-[10px] ml-1">* required</span>}
+        {isRequired && <span className="text-blue-500 text-[9px] ml-1">* required</span>}
       </label>
       {onToggleHandle && (
         <button
           type="button"
+          suppressHydrationWarning={true}
           onClick={(e) => { e.stopPropagation(); onToggleHandle(fieldName); }}
-          className={`p-1 rounded transition-colors group-hover/label:opacity-100 ${exposedHandles.includes(fieldName) ? "text-blue-500 opacity-100" : "text-white opacity-100"}`}
+          className={`p-1 rounded-lg transition-all group-hover/label:opacity-100 h-6 w-6 flex items-center justify-center ${exposedHandles.includes(fieldName) ? "text-blue-500 bg-blue-500/10 opacity-100" : "text-zinc-500 hover:text-white hover:bg-white/5 opacity-0"}`}
           title={exposedHandles.includes(fieldName) ? "Remove input" : "Set as input"}
         >
           <TbExternalLink size={14} />
@@ -52,30 +54,7 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
       const rect = containerRef.current.getBoundingClientRect();
       const windowHeight = window.innerHeight;
       const spaceBelow = windowHeight - rect.bottom;
-      const spaceAbove = rect.top;
-      const padding = 10;
-      
-      let style = {
-        position: 'fixed',
-        left: `${rect.left}px`,
-        width: `${rect.width}px`,
-        zIndex: 9999
-      };
-      let positionClass = '';
-
-      if (spaceBelow > 200 || spaceBelow > spaceAbove) {
-        style.top = `${rect.bottom + 5}px`;
-        style.bottom = 'auto';
-        style.maxHeight = `${spaceBelow - padding}px`;
-        positionClass = 'top';
-      } else {
-        style.top = 'auto';
-        style.bottom = `${windowHeight - rect.top + 5}px`;
-        style.maxHeight = `${spaceAbove - padding}px`;
-        positionClass = 'bottom';
-      }
-      
-      setDropdownStyle(style);
+      setIsOpeningUp(spaceBelow < 200);
     }
   }, [dropDown, idx]);
 
@@ -144,12 +123,13 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
   };
 
   const handleStyle = {
-    width: 12,
-    height: 12,
+    width: 10,
+    height: 10,
     transition: 'all 0.2s ease-in-out',
-    background: '#000',
-    border: '2px solid #3b82f6',
-    zIndex: 10
+    background: '#3b82f6',
+    border: '2px solid #fff',
+    zIndex: 10,
+    boxShadow: '0 0 10px rgba(59, 130, 246, 0.5)'
   };
 
   if (meta.enum) {
@@ -187,7 +167,7 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
         >
           <div 
             ref={containerRef}
-            className="flex items-center gap-1 border border-gray-600 rounded bg-[#1f2125] relative"
+            className="flex items-center gap-1 border border-white/10 rounded-lg bg-zinc-900/50 hover:border-white/20 transition-all relative overflow-hidden"
           >
             {isManual ? (
               <input
@@ -201,8 +181,9 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
             ) : (
               <button
                 type="button"
+                suppressHydrationWarning={true}
                 onClick={() => setDropDown((prev) => (prev === idx + 1 ? -1 : idx + 1))}
-                className="flex items-center justify-between gap-1 text-xs text-center text-white w-full h-full cursor-pointer whitespace-nowrap px-2 py-[5px] focus:outline-none"
+                className="flex items-center justify-between gap-1 text-xs text-center text-white w-full h-full cursor-pointer whitespace-nowrap px-3 py-1.5 focus:outline-none"
               >
                 <div className="flex items-center gap-2 truncate">
                   <span className="truncate">
@@ -218,6 +199,7 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
             
             <button
               type="button"
+              suppressHydrationWarning={true}
               onClick={() => setDropDown((prev) => (prev === idx + 1 ? -1 : idx + 1))}
               className="px-2 text-gray-400 hover:text-white cursor-pointer border-l border-gray-700 h-full flex items-center justify-center"
             >
@@ -232,28 +214,28 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
           <div
             tabIndex={-1}
             style={dropdownStyle}
-            className={`fixed border border-gray-500 p-1 rounded-md flex flex-col overflow-y-auto bg-[#1c1e21] shadow-xl z-[9999] ${
+            className={`absolute left-0 ${isOpeningUp ? "bottom-full mb-2" : "top-full mt-2"} border border-white/10 p-2 rounded-lg flex flex-col overflow-y-auto bg-zinc-900/95 backdrop-blur-3xl shadow-2xl z-50 transition-all duration-200 w-full max-h-60 custom-scrollbar-thin ${
               dropDown === idx + 1
-                ? "opacity-100 scale-100 visible"
-                : "opacity-0 scale-95 invisible"
+                ? "opacity-100 scale-100 visible translate-y-0"
+                : `opacity-0 scale-95 invisible ${isOpeningUp ? "translate-y-2" : "-translate-y-2"}`
             }`}
           >
             {filteredOptions.length > 0 ? (
               filteredOptions.map((option, i) => (
                 <button
                   type="button"
+                  suppressHydrationWarning={true}
                   key={i}
-                  className={`flex items-center gap-2 p-1 text-xs cursor-pointer rounded hover:bg-[#33322f] ${
+                  className={`flex items-center gap-2 px-3 py-2 text-xs cursor-pointer rounded-lg transition-all ${
                     (typeof option === "object" ? formValues[fieldName] === option.value : formValues[fieldName] === option)
-                      ? "text-white"
-                      : "text-gray-400 hover:text-white"
-                  }
-                      `}
+                      ? "bg-blue-500/10 text-blue-400"
+                      : "text-zinc-400 hover:bg-white/5 hover:text-white"
+                  }`}
                   onClick={() => {handleChange(fieldName, typeof option === "object" ? option.value : option); setDropDown(-1)}}
                 >
                   <span className="truncate">{typeof option === "object" ? option.label || option.value : option}</span>
                   {(typeof option === "object" ? formValues[fieldName] === option.value : formValues[fieldName] === option) && (
-                    <span className="ml-auto text-white font-bold">✓</span>
+                    <span className="ml-auto text-blue-400 font-bold">✓</span>
                   )}
                 </button>
               ))
@@ -285,7 +267,7 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
             value={formValues[fieldName] || ''} 
             readOnly
             // onChange={(e) => handleChange(fieldName, e.target.value)} 
-            className="bg-[#1f2125] text-white text-xs py-1 px-2 rounded border border-gray-600 w-full" 
+            className="bg-zinc-900/50 text-white text-xs py-2 px-3 rounded-lg border border-white/10 hover:border-white/20 transition-all w-full outline-none focus:border-blue-500/50" 
             placeholder="Add a file or provide an URL" 
           />
           {/* <input 
@@ -322,16 +304,17 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
         {formValues[fieldName] && (
           <div className="flex items-center gap-2 relative group overflow-hidden self-start w-full">
             {isImageField || isImageUrl(value) ? (
-              <img src={value} alt="Preview" className="w-24 h-24 object-cover border border-gray-300 rounded" width={0} height={0} />
+              <img src={value} alt="Preview" className="w-24 h-24 object-cover border border-white/10 rounded-xl shadow-lg" width={0} height={0} />
             ) : isVideoField ? (
-              <video src={value} className="w-24 h-24 object-cover border border-gray-300 rounded" />
+              <video src={value} className="w-24 h-24 object-cover border border-white/10 rounded-xl shadow-lg" />
             ) : isAudioField && (
-              <div className="flex flex-col w-full h-16 border border-gray-300 rounded-md overflow-hidden">
+              <div className="flex flex-col w-full h-16 border border-white/10 rounded-xl overflow-hidden shadow-lg">
                 <AudioPlayer src={value} />
               </div>
             )}
             <button 
               type="button" 
+              suppressHydrationWarning={true}
               onClick={() => handleChange(fieldName, '')} 
               className="text-gray-500 group-hover:text-red-600 group-hover:font-black cursor-pointer absolute top-2 left-2"
             >
@@ -378,6 +361,7 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
               <div className="inset-0 group-hover:bg-gray-600/40 absolute rounded">
                 <button 
                   type="button" 
+                  suppressHydrationWarning={true}
                   onClick={() => {
                     const updated = [...imageList];
                     updated.splice(idx, 1);
@@ -470,7 +454,7 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
           value={value}
           onChange={(e) => handleChange(fieldName, parseFloat(e.target.value || 0))}
           placeholder={meta.description || ""}
-          className="bg-[#1f2125] text-white text-xs p-1 rounded border border-gray-600 outline-none"
+          className="bg-zinc-900/50 text-white text-xs p-2 rounded-lg border border-white/10 hover:border-white/20 transition-all outline-none focus:border-blue-500/50"
         />
       </div>
     );
@@ -497,7 +481,7 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
           value={value}
           placeholder={meta.placeholder || meta.description || fieldName}
           onChange={(e) => handleChange(fieldName, e.target.value)}
-          className="bg-[#1f2125] text-white text-xs py-1 px-2 rounded border border-gray-600 w-full"
+          className="bg-zinc-900/50 text-white text-xs py-2 px-3 rounded-lg border border-white/10 hover:border-white/20 transition-all w-full outline-none focus:border-blue-500/50"
         />
       </div>
     );
@@ -525,8 +509,8 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
               checked={!!formValues[fieldName]}
               onChange={(e) => handleChange(fieldName, e.target.checked)}
             />
-            <span className={`flex items-center h-[18px] w-[34px] rounded-full p-1 duration-200 ${!!formValues[fieldName] ? "bg-blue-500" : "bg-[#1c1e21] border dark:border-gray-500"}`}>
-              <span className={`h-[11px] w-[11px] rounded-full bg-white duration-200 ${!!formValues[fieldName] && "translate-x-4"}`}></span>
+            <span className={`flex items-center h-[20px] w-[36px] rounded-full p-1 duration-200 transition-all ${!!formValues[fieldName] ? "bg-blue-600 shadow-lg shadow-blue-900/40" : "bg-zinc-800 border border-white/10"}`}>
+              <span className={`h-[12px] w-[12px] rounded-full bg-white duration-200 shadow-sm ${!!formValues[fieldName] && "translate-x-4"}`}></span>
             </span>
           </label>
           <p className="text-xs">{meta.description}</p>
@@ -553,7 +537,7 @@ const RenderApiField = ({ fieldName, meta, idx, formValues, setFormValues, handl
         readOnly
         // onChange={(e) => handleChange(fieldName, e.target.value)}
         placeholder={meta.description || ""}
-        className="bg-[#1f2125] text-white text-xs py-1 px-2 rounded border border-gray-600 w-full"
+        className="bg-zinc-900/50 text-white text-xs py-2 px-3 rounded-lg border border-white/10 hover:border-white/20 transition-all w-full outline-none focus:border-blue-500/50"
         rows={6}
       />
     </div>

@@ -166,6 +166,8 @@ const CodeBlock = ({ language, value }) => {
           {language || "code"}
         </span>
         <button
+          type="button"
+          suppressHydrationWarning={true}
           onClick={handleCopy}
           className="flex items-center gap-1.5 text-[10px] font-medium text-gray-400 hover:text-white transition-colors"
         >
@@ -203,6 +205,7 @@ const ChatWidget = ({ isOpen, toggleChat, messages, onSendMessage, isLoading, on
   const [loadingStep, setLoadingStep] = useState(0);
   const [copiedId, setCopiedId] = useState(null);
   const [isWide, setIsWide] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   const loadingTexts = ["Thinking", "Analyzing", "Generating", "Refining", "Processing", "Running"];
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -219,6 +222,10 @@ const ChatWidget = ({ isOpen, toggleChat, messages, onSendMessage, isLoading, on
     }
     return () => clearInterval(interval);
   }, [isLoading]);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -305,6 +312,8 @@ const ChatWidget = ({ isOpen, toggleChat, messages, onSendMessage, isLoading, on
             </div>
             <div className="flex items-center gap-1">
               <button
+                type="button"
+                suppressHydrationWarning={true}
                 onClick={() => setIsWide(!isWide)}
                 title={isWide ? "Narrow View" : "Wide View"}
                 className="hidden md:flex p-2 text-gray-400 hover:text-blue-400 transition-colors rounded-full hover:bg-white/5"
@@ -313,6 +322,8 @@ const ChatWidget = ({ isOpen, toggleChat, messages, onSendMessage, isLoading, on
               </button>
               {messages.length > 0 && (
                 <button
+                  type="button"
+                  suppressHydrationWarning={true}
                   onClick={onClearHistory}
                   title="Clear Chat History"
                   className="p-2 text-gray-400 hover:text-red-400 transition-colors rounded-full hover:bg-white/5"
@@ -321,6 +332,8 @@ const ChatWidget = ({ isOpen, toggleChat, messages, onSendMessage, isLoading, on
                 </button>
               )}
               <button
+                type="button"
+                suppressHydrationWarning={true}
                 onClick={toggleChat}
                 className="p-2 text-gray-400 hover:text-white transition-colors rounded-full hover:bg-white/5"
               >
@@ -342,6 +355,8 @@ const ChatWidget = ({ isOpen, toggleChat, messages, onSendMessage, isLoading, on
                 <div className={`grid ${isWide ? "grid-cols-2" : "grid-cols-1"} gap-2 w-full`}>
                   {DEFAULT_SUGGESTIONS.map((suggestion, sIdx) => (
                     <button
+                      type="button"
+                      suppressHydrationWarning={true}
                       key={sIdx}
                       onClick={() => onSendMessage(suggestion)}
                       className="px-4 py-3 text-xs font-medium bg-white/5 text-gray-300 rounded-xl hover:bg-blue-600/20 hover:text-blue-400 hover:border-blue-500/50 transition-all text-left border border-white/10 shadow-sm cursor-pointer flex items-center gap-3 group"
@@ -364,7 +379,7 @@ const ChatWidget = ({ isOpen, toggleChat, messages, onSendMessage, isLoading, on
                     {showDateLabel && (
                       <div className="flex justify-center my-2">
                         <span className="px-3 py-1 bg-white/5 text-[10px] uppercase font-bold text-gray-500 rounded-full border border-white/10">
-                          {formatMessageDate(msg.timestamp)}
+                          {isMounted ? formatMessageDate(msg.timestamp) : "---"}
                         </span>
                       </div>
                     )}
@@ -429,6 +444,8 @@ const ChatWidget = ({ isOpen, toggleChat, messages, onSendMessage, isLoading, on
                             <div className="flex flex-wrap gap-2 pt-2 border-t border-white/10">
                               {msg.suggestions.map((suggestion, sIdx) => (
                                 <button
+                                  type="button"
+                                  suppressHydrationWarning={true}
                                   key={sIdx}
                                   onClick={() => onSendMessage(suggestion)}
                                   className="px-3 py-1.5 text-xs font-medium bg-[#242936] text-gray-300 rounded-lg hover:bg-blue-600/20 hover:text-blue-400 transition-colors text-left border border-white/10 shadow-sm cursor-pointer"
@@ -442,9 +459,11 @@ const ChatWidget = ({ isOpen, toggleChat, messages, onSendMessage, isLoading, on
                       </div>
                       <div className="flex items-center gap-2 mt-1 px-1">
                         <span className="text-[10px] text-gray-400">
-                          {formatMessageTime(msg.timestamp)}
+                          {isMounted ? formatMessageTime(msg.timestamp) : "--:--"}
                         </span>
                         <button
+                          type="button"
+                          suppressHydrationWarning={true}
                           onClick={() => handleCopy(msg.content, idx)}
                           className="text-gray-400 hover:text-blue-500 transition-colors cursor-pointer"
                           title="Copy Message"
@@ -500,6 +519,7 @@ const ChatWidget = ({ isOpen, toggleChat, messages, onSendMessage, isLoading, on
               />
               <button
                 type="submit"
+                suppressHydrationWarning={true}
                 disabled={!inputValue.trim()}
                 className="p-2 bg-blue-600 text-white rounded-full shadow-md hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95 shrink-0"
               >
@@ -511,6 +531,8 @@ const ChatWidget = ({ isOpen, toggleChat, messages, onSendMessage, isLoading, on
       )}
       {!isOpen && (
         <button
+          type="button"
+          suppressHydrationWarning={true}
           onClick={toggleChat}
           className={`group relative right-6 md:right-0 flex items-center justify-center w-10 h-10 bg-blue-600 rounded-full shadow-lg shadow-blue-600/30 hover:shadow-blue-600/50 hover:scale-110 transition-all duration-300 ${isLoading ? 'ring-2 ring-blue-200 ring-offset-2' : ''}`}
         >
