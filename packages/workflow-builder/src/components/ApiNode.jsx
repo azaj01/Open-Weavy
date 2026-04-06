@@ -37,7 +37,13 @@ const ApiNode = ({ id, data, selected }) => {
   const edges = useStore((state) => state.edges);
   const modelSchema = nodeSchemas?.categories?.api?.models[selectedModel.id];  
   const textareaRef = useRef(null);
-  
+
+  useEffect(() => {
+    if (data.cost !== 0.025) {
+      data.onDataChange?.(id, { cost: 0.025 });
+    }
+  }, [id, data.cost]);
+
   const initializeFormData = (schemaProperties) => {
     const initialData = {};
     const fieldEntries = Object.entries(schemaProperties || {});
@@ -424,6 +430,8 @@ const ApiNode = ({ id, data, selected }) => {
           run_id: runId,
           model: selectedModel.id,
           params: params,
+          cost: 0.025,
+          node_id: "API Node"
         }
       );
       pollNodeStatus(response.data.run_id);
@@ -574,11 +582,16 @@ const ApiNode = ({ id, data, selected }) => {
         bg-[#0c0d0f]/95 backdrop-blur-sm
       `}
     >
-      <h3 className="absolute -top-5 left-0 text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
-        Api {id.replace(/^\D+/g, "")}
-      </h3>
+      <div className="flex items-center gap-2 absolute -top-5 left-0">
+        <h3 className="text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
+          Api {id.replace(/^\D+/g, "")}
+        </h3>
+        <span className="text-xs text-blue-500 -mt-0.5 font-medium flex items-center gap-1 opacity-80">
+          $0.025
+        </span>
+      </div>
       <div className="flex flex-col">
-        <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 p-3">
+        <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 py-2 px-3">
           <div className="flex items-center gap-2.5">
             <div className={`p-1.5 rounded-lg ${selected ? "bg-blue-600 text-white" : "bg-zinc-800 text-zinc-400"} transition-colors`}>
               <RiInputMethodLine size={14} />

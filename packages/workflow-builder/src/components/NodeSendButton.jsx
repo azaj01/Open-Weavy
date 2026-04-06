@@ -44,9 +44,9 @@ const NodeSendButton = ({ id, data, outputHistory, currentHistoryIndex, currentO
 
             return connectedEdges.map((edge) => (
               <button
-                key={edge.id}
                 type="button"
                 suppressHydrationWarning={true}
+                key={edge.id}
                 className="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-white/10 hover:text-white transition-colors truncate capitalize cursor-pointer block"
                 onClick={(e) => {
                   e.stopPropagation();

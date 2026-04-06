@@ -12,6 +12,8 @@ import { MdOutlineFileDownload } from "react-icons/md";
 import NodeSendButton from "./NodeSendButton";
 import { FaAngleLeft, FaAngleRight } from "react-icons/fa6";
 import NodeOptionsMenu from "./NodeOptionsMenu";
+import { useGenerationCost } from "./useGenerationCost";
+import VideoPlayer from "./VideoPlayer";
 
 const inputHandles = [
   "videoInput",   // prompt
@@ -20,7 +22,8 @@ const inputHandles = [
   "videoInput4",  // video_url
   "videoInput5",  // audio_url
   "videoInput6",  // images_list
-  "videoInput7",  // videos_list
+  "videoInput7",  // videos_list, video_files
+  "videoInput8",  // audios_list, audio_files
 ];
 
 const outputHandles = [
@@ -42,11 +45,6 @@ const VideoGeneration = ({ id, data, selected }) => {
   const [loading, setLoading] = useState(0);
   const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1);
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [isMuted, setIsMuted] = useState(true);
   const videoRef = useRef(null);
   const outputHistory = data.outputHistory || [];
   const prevHistoryLengthRef = useRef(outputHistory.length);
@@ -57,7 +55,14 @@ const VideoGeneration = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state) => state.edges);
   const properties = nodeSchemas?.categories?.video?.models?.[selectedModel.id]?.input_schema?.schemas?.input_data?.properties;
+  const { generationCost, isRefreshingCost } = useGenerationCost(selectedModel, formValues);
   
+  useEffect(() => {
+    if (data.cost !== generationCost) {
+      data.onDataChange(id, { cost: generationCost });
+    }
+  }, [id, generationCost, data.cost]);
+
   const initializeFormData = (schemaProperties) => {
     const initialData = {};
     const fieldEntries = Object.entries(schemaProperties || {});
@@ -289,6 +294,8 @@ const VideoGeneration = ({ id, data, selected }) => {
         run_id: runId,
         model: selectedModel.id,
         params: params,
+        cost: generationCost,
+        node_id: "AI Video"
       });
       pollNodeStatus(response.data.run_id);
     } catch(error) {
@@ -308,12 +315,13 @@ const VideoGeneration = ({ id, data, selected }) => {
 
   const hasPrompt = properties && "prompt" in properties && !data.selectedModel?.id.includes("passthrough");
   const hasImagesList = properties && "images_list" in properties && !data.selectedModel?.id.includes("passthrough");
-  const hasVideosList = properties && "videos_list" in properties && !data.selectedModel?.id.includes("passthrough");
+  const hasVideosList = properties && ("videos_list" in properties || "video_files" in properties) && !data.selectedModel?.id.includes("passthrough");
   const hasLastImage = properties && "last_image" in properties && !data.selectedModel?.id.includes("passthrough");
   const hasImageUrl = properties && "image_url" in properties && !data.selectedModel?.id.includes("passthrough");
   const hasVideoUrl = properties && "video_url" in properties && !data.selectedModel?.id.includes("passthrough");
   const hasAudioUrl = properties && "audio_url" in properties && !data.selectedModel?.id.includes("passthrough");
-  
+  const hasAudiosList = properties && ("audios_list" in properties || "audio_files" in properties) && !data.selectedModel?.id.includes("passthrough");
+
   useEffect(() => {
     const timeout = setTimeout(() => {
       const validHandles = [
@@ -324,6 +332,7 @@ const VideoGeneration = ({ id, data, selected }) => {
         hasAudioUrl && "videoInput5",
         hasImagesList && "videoInput6",
         hasVideosList && "videoInput7",
+        hasAudiosList && "videoInput8",
       ].filter(Boolean);
 
       setEdges((prevEdges) =>
@@ -425,7 +434,7 @@ const VideoGeneration = ({ id, data, selected }) => {
 
   return (
     <div 
-      style={{ minHeight: 280, '--loader-color': '#f97316' }} 
+      style={{ minHeight: 220, '--loader-color': '#f97316' }} 
       className={`
         nowheel group flex flex-col w-80 
         rounded-2xl border-2 relative transition-all duration-300 ease-in-out 
@@ -438,9 +447,24 @@ const VideoGeneration = ({ id, data, selected }) => {
       {data.isLoading && (
         <div className="loader-border" />
       )}
-      <h4 className="absolute -top-5 left-0 text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
-        Video {id.replace(/^\D+/g, "")}
-      </h4>
+      <div className="flex items-center gap-2 absolute -top-5 left-0">
+        <h4 className="text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
+          Video {id.replace(/^\D+/g, "")}
+        </h4>
+        {generationCost !== null && !selectedModel?.id.includes("passthrough") && (
+          <span className="text-xs text-orange-500 -mt-0.5 font-medium flex items-center gap-1 opacity-80">
+            {isRefreshingCost ? (
+              <span className="flex items-center gap-1 italic text-orange-200">
+                <div className="w-2 h-2 border-[1.5px] border-orange-200/30 border-t-orange-400 rounded-full animate-spin"></div>
+              </span>
+            ) : (
+              <span>
+                {generationCost === 0 ? 'Free' : (`$${generationCost}`)}
+              </span>
+            )}
+          </span>
+        )}
+      </div>
       <div className="flex flex-col">
         <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 p-3">
           <div className="flex items-center gap-2.5">
@@ -524,7 +548,12 @@ const VideoGeneration = ({ id, data, selected }) => {
               {data.errorMsg || "Generation failed"}
             </div>
           ) : currentOutput && !data.isLoading ? (
-            <div className="h-full w-full relative group/video">
+            <div className="h-full w-full relative">
+              <VideoPlayer 
+                key={currentOutput}
+                src={currentOutput}
+                accentColor="#f97316"
+              />
               {currentOutputList.length > 1 && (
                 <>
                   <button
@@ -534,7 +563,7 @@ const VideoGeneration = ({ id, data, selected }) => {
                       e.stopPropagation();
                       setCurrentVideoIndex((prev) => (prev > 0 ? prev - 1 : currentOutputList.length - 1));
                     }}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover/video:opacity-100 transition-opacity hover:bg-black/70"
+                    className="absolute left-2 top-1/2 -translate-y-1/2 z-30 w-8 h-8 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70"
                   >
                     <FaAngleLeft size={16} />
                   </button>
@@ -545,121 +574,14 @@ const VideoGeneration = ({ id, data, selected }) => {
                       e.stopPropagation();
                       setCurrentVideoIndex((prev) => (prev < currentOutputList.length - 1 ? prev + 1 : 0));
                     }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover/video:opacity-100 transition-opacity hover:bg-black/70"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 z-30 w-8 h-8 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70"
                   >
                     <FaAngleRight size={16} />
                   </button>
                 </>
               )}
-              <video
-                ref={videoRef}
-                key={currentOutput}
-                src={currentOutput}
-                autoPlay
-                muted={isMuted}
-                loop
-                playsInline
-                onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
-                onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (videoRef.current.paused) {
-                    videoRef.current.play();
-                  } else {
-                    videoRef.current.pause();
-                  }
-                }}
-                className="w-full h-full object-contain rounded-b-xl animate-in fade-in duration-500 cursor-pointer"
-              />
-              {!isPlaying && (
-                <div 
-                  className="absolute inset-0 flex items-center justify-center pointer-events-none group-hover/video:opacity-100 transition-opacity duration-300"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    videoRef.current.play();
-                    setIsPlaying(true);
-                  }}
-                >
-                  <div className="w-16 h-16 bg-black/20 backdrop-blur-md rounded-full flex items-center justify-center text-white border border-white/20 shadow-2xl transform group-hover/video:scale-110 transition-transform pointer-events-auto cursor-pointer">
-                    <IoPlay size={32} className="ml-1" />
-                  </div>
-                </div>
-              )}
-              <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover/video:opacity-100 transition-opacity duration-300 rounded-b-xl flex flex-col gap-2">
-                <input
-                  type="range"
-                  min="0"
-                  max={duration || 0}
-                  value={currentTime}
-                  onChange={(e) => {
-                    const time = parseFloat(e.target.value);
-                    videoRef.current.currentTime = time;
-                    setCurrentTime(time);
-                  }}
-                  className="w-full h-1 bg-white/20 rounded-full appearance-none cursor-pointer hover:h-1.5 transition-all seek-bar"
-                  style={{
-                    background: `linear-gradient(to right, #f97316 0%, #f97316 ${(currentTime / duration) * 100}%, rgba(255, 255, 255, 0.2) ${(currentTime / duration) * 100}%, rgba(255, 255, 255, 0.2) 100%)`
-                  }}
-                />
-                
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      suppressHydrationWarning={true}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (videoRef.current.paused) {
-                          videoRef.current.play();
-                          setIsPlaying(true);
-                        } else {
-                          videoRef.current.pause();
-                          setIsPlaying(false);
-                        }
-                      }}
-                      className="text-white/90 hover:text-white transition-colors"
-                    >
-                      {videoRef.current?.paused === false ? <IoPause size={18} /> : <IoPlay size={18} />}
-                    </button>
-                    
-                    <div className="flex items-center gap-2 group/volume">
-                      <button
-                        type="button"
-                        suppressHydrationWarning={true}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setIsMuted(!isMuted);
-                        }}
-                        className="text-white/90 hover:text-white transition-colors"
-                      >
-                        {isMuted ? <IoVolumeMute size={18} /> : <IoVolumeHigh size={18} />}
-                      </button>
-                      <input
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.1"
-                        value={isMuted ? 0 : volume}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value);
-                          setVolume(val);
-                          videoRef.current.volume = val;
-                          if (val > 0) setIsMuted(false);
-                        }}
-                        className="w-0 group-hover/volume:w-16 h-1 bg-white/20 rounded-full appearance-none cursor-pointer accent-white transition-all overflow-hidden"
-                      />
-                    </div>
-                    
-                    <span className="text-[10px] text-white/70 font-medium tabular-nums">
-                      {Math.floor(currentTime / 60)}:{Math.floor(currentTime % 60).toString().padStart(2, '0')} / {Math.floor(duration / 60)}:{Math.floor(duration % 60).toString().padStart(2, '0')}
-                    </span>
-                  </div>
-                </div>
-              </div>
               {currentOutputList.length > 1 && (
-                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex gap-1 z-10">
+                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex gap-1 z-30">
                   {currentOutputList.map((_, idx) => (
                     <div
                       key={idx}
@@ -867,6 +789,37 @@ const VideoGeneration = ({ id, data, selected }) => {
           }`}
         > 
           Videos
+        </p>
+      )}
+      <Handle 
+        type="target" 
+        position={Position.Left} 
+        id="videoInput8"
+        style={{ 
+          top: 190,
+          opacity: hasAudiosList ? 1 : 0,
+          pointerEvents: hasAudiosList ? 'auto' : 'none',
+          width: 12,
+          height: 12,
+          transition: 'all 0.2s ease-in-out',
+        }} 
+        className={`!rounded-full !border-[3px] !left-[-8px] transition-all
+          ${connectedInputs.videoInput8 
+            ? '!bg-yellow-500 !border-zinc-900 shadow-[0_0_15px_rgba(234,179,8,0.8)]' 
+            : '!bg-zinc-900 !border-yellow-500/50 hover:!border-yellow-500 shadow-sm'
+          }
+        `}
+        data-type="yellow"
+      />
+      {hasAudiosList && (
+        <p 
+          className={`absolute -left-10 top-[190px] text-xs text-yellow-500 transition-opacity duration-200 ${
+            data.activeHandleColor === "yellow"
+              ? "opacity-100" 
+              : "opacity-0 group-hover:opacity-100"
+          }`}
+        > 
+          Audios
         </p>
       )}
       <Handle 
