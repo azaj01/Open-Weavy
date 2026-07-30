@@ -219,9 +219,28 @@ const processWorkflowData = (workflowData, nodeSchemas, id) => {
   };
 };
 
-const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
+const NodeFlow = ({ apiKey, initialNodeSchemas, initialWorkflowData }) => {
   const params = useParams();
   const { id } = params;
+
+  // The npm resolution for this package pulls in its own, separate `axios` module
+  // instance from Open-Higgsfield-ai/node_modules (different version than the one
+  // WhiteLabelShell.js/muapi.js use), so the ambient global axios interceptor those
+  // register to inject the white-label bearer token never applies to requests made
+  // from here — every call below went out with no credentials at all. Attach the
+  // token explicitly per-request instead of relying on that ambient interceptor.
+  const api = useMemo(() => {
+    const instance = axios.create();
+    instance.interceptors.request.use((config) => {
+      if (apiKey) {
+        config.headers = config.headers || {};
+        config.headers["Authorization"] = `Bearer ${apiKey}`;
+        config.headers["x-api-key"] = apiKey;
+      }
+      return config;
+    });
+    return instance;
+  }, [apiKey]);
 
   // Pre-calculate initial state if data is provided
   const initialState = useMemo(() => {
@@ -304,7 +323,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
 
   useEffect(() => {
     if (!initialNodeSchemas) {
-      axios.get(`/api/workflow/${id}/node-schemas`)
+      api.get(`/api/workflow/${id}/node-schemas`)
         .then(res => setNodeSchemas(res.data || {}))
         .catch(err => console.error("Failed to load node schemas", err));
     }
@@ -409,7 +428,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
 
     if (!id || !nodeSchemas?.categories) return;
 
-    axios.get(`/api/workflow/get-workflow-def/${id}`)
+    api.get(`/api/workflow/get-workflow-def/${id}`)
       .then(res => {
         restoreWorkflow(res.data);
       })
@@ -816,7 +835,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
   const pollArchitectStatus = (request_id) => {
     const interval = setInterval(async () => {
       try {
-        const response = await axios.get(`/api/workflow/poll-architect/${request_id}/result`);
+        const response = await api.get(`/api/workflow/poll-architect/${request_id}/result`);
         const finalData = response.data;
         const status = finalData.status;
 
@@ -957,7 +976,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         content: msg.content
       }));
 
-      const response = await axios.post("/api/workflow/architect", {
+      const response = await api.post("/api/workflow/architect", {
         prompt: content,
         workflow_id: savedWorkflowId,
         history: history,
@@ -1301,7 +1320,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     const workflowPayload = buildWorkflowPayload();
 
     try {
-      const response = await axios.post("/api/workflow/create", workflowPayload);
+      const response = await api.post("/api/workflow/create", workflowPayload);
       console.log("Workflow created:", response.data);
       setDropDown(0);
       setWorkflowIds(response.data.workflow_id, runId);
@@ -1323,7 +1342,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     const workflowPayload = buildWorkflowPayload();
 
     try {
-      const response = await axios.post("/api/workflow/create", workflowPayload);
+      const response = await api.post("/api/workflow/create", workflowPayload);
       console.log("Workflow created:", response.data);
       window.location.href = `/workflow/${response.data.workflow_id}`;
     } catch (error) {
@@ -1350,7 +1369,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
 
   const pollRunIdStatus = (runId) => {
     const interval = setInterval(() => {
-      axios.get(`/api/workflow/run/${runId}/status`)
+      api.get(`/api/workflow/run/${runId}/status`)
         .then((response) => {
           const runData = response.data;
           const nodesStatus = runData?.nodes || {};
@@ -1473,7 +1492,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       setLoadingNodes({});
       const savedWorkflowId = await handleSaveWorkFlow();
 
-      const response = await axios.post(`/api/workflow/${workflowId}/run`, {
+      const response = await api.post(`/api/workflow/${workflowId}/run`, {
         cost: totalWorkflowCost
       });
       console.log("run data:", response.data);
@@ -1499,7 +1518,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       setIsRunning(2);
       const savedWorkflowId = await handleSaveWorkFlow();
 
-      const response = await axios.post(`/api/workflow/workflow/${savedWorkflowId}/publish`, {
+      const response = await api.post(`/api/workflow/workflow/${savedWorkflowId}/publish`, {
         publish: !publishWorkflow
       });
       setIsRunning(0);
@@ -1523,7 +1542,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       setIsRunning(4);
       const savedWorkflowId = await handleSaveWorkFlow();
 
-      const response = await axios.post(`/api/workflow/workflow/${savedWorkflowId}/template`, {
+      const response = await api.post(`/api/workflow/workflow/${savedWorkflowId}/template`, {
         is_template: !template.isPublishedTemplate
       });
       const is_template = response.data.is_template;
@@ -1548,7 +1567,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
     }
 
     try {
-      const response = await axios.post(`/api/workflow/update-category/${workflowId}`, {
+      const response = await api.post(`/api/workflow/update-category/${workflowId}`, {
         category: categoryInput
       });
       console.log("Category updated:", response.data);
